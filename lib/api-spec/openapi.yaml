@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: assistant
+    description: Personal assistant workspace operations
 paths:
   /healthz:
     get:
@@ -24,8 +26,418 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /assistant/overview:
+    get:
+      operationId: getAssistantOverview
+      tags: [assistant]
+      summary: Get the assistant workspace overview
+      responses:
+        "200":
+          description: Workspace overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantOverview"
+  /assistant/providers:
+    get:
+      operationId: listAssistantProviders
+      tags: [assistant]
+      summary: List model providers and safe configuration status
+      responses:
+        "200":
+          description: Provider catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssistantProvider"
+  /assistant/providers/select:
+    post:
+      operationId: selectAssistantProvider
+      tags: [assistant]
+      summary: Select a configured model provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantProviderSelectionInput"
+      responses:
+        "200":
+          description: Selected provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantProviderSelection"
+  /assistant/conversations:
+    get:
+      operationId: listAssistantConversations
+      tags: [assistant]
+      summary: List assistant conversations
+      responses:
+        "200":
+          description: Conversation list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssistantConversation"
+    post:
+      operationId: createAssistantConversation
+      tags: [assistant]
+      summary: Create an assistant conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantConversationInput"
+      responses:
+        "201":
+          description: Created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantConversation"
+  /assistant/conversations/{id}:
+    get:
+      operationId: getAssistantConversation
+      tags: [assistant]
+      summary: Get a conversation with its messages
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Conversation detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantConversationWithMessages"
+    delete:
+      operationId: deleteAssistantConversation
+      tags: [assistant]
+      summary: Delete a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+  /assistant/conversations/{id}/messages:
+    post:
+      operationId: sendAssistantMessage
+      tags: [assistant]
+      summary: Send a message and receive an assistant response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantMessageInput"
+      responses:
+        "200":
+          description: Assistant response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantMessagePair"
+  /assistant/memory:
+    get:
+      operationId: listAssistantMemory
+      tags: [assistant]
+      summary: List saved assistant memory
+      responses:
+        "200":
+          description: Memory entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssistantMemory"
+    post:
+      operationId: createAssistantMemory
+      tags: [assistant]
+      summary: Save a memory entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantMemoryInput"
+      responses:
+        "201":
+          description: Created memory entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantMemory"
+  /assistant/memory/{id}:
+    delete:
+      operationId: deleteAssistantMemory
+      tags: [assistant]
+      summary: Delete a memory entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+  /assistant/connections:
+    get:
+      operationId: listAssistantConnections
+      tags: [assistant]
+      summary: List connected services and capabilities
+      responses:
+        "200":
+          description: Connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssistantConnection"
 components:
   schemas:
+    AssistantOverview:
+      type: object
+      properties:
+        activeConversationId:
+          type: integer
+        conversationCount:
+          type: integer
+        memoryCount:
+          type: integer
+        connectionCount:
+          type: integer
+        model:
+          type: string
+        modelStatus:
+          type: string
+        providerId:
+          type: string
+        providerStatus:
+          type: string
+        recentActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantActivity"
+      required:
+        - activeConversationId
+        - conversationCount
+        - memoryCount
+        - connectionCount
+        - model
+        - modelStatus
+        - providerId
+        - providerStatus
+        - recentActivity
+    AssistantProvider:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        vendor:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        configured:
+          type: boolean
+        model:
+          type: string
+        baseUrlConfigured:
+          type: boolean
+        credentialConfigured:
+          type: boolean
+        capabilities:
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - name
+        - vendor
+        - description
+        - status
+        - configured
+        - model
+        - baseUrlConfigured
+        - credentialConfigured
+        - capabilities
+    AssistantProviderSelectionInput:
+      type: object
+      properties:
+        providerId:
+          type: string
+          minLength: 1
+      required: [providerId]
+    AssistantProviderSelection:
+      type: object
+      properties:
+        activeProviderId:
+          type: string
+        selectedProviderId:
+          type: string
+        status:
+          type: string
+      required: [activeProviderId, selectedProviderId, status]
+    AssistantActivity:
+      type: object
+      properties:
+        id:
+          type: integer
+        label:
+          type: string
+        detail:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        tone:
+          type: string
+      required: [id, label, detail, createdAt, tone]
+    AssistantConversation:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        messageCount:
+          type: integer
+      required: [id, title, createdAt, updatedAt, messageCount]
+    AssistantConversationInput:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+      required: [title]
+    AssistantMessage:
+      type: object
+      properties:
+        id:
+          type: integer
+        conversationId:
+          type: integer
+        role:
+          type: string
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        model:
+          type: ["string", "null"]
+        metadata:
+          type: ["string", "null"]
+      required: [id, conversationId, role, content, createdAt, model, metadata]
+    AssistantConversationWithMessages:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantMessage"
+      required: [id, title, createdAt, updatedAt, messages]
+    AssistantMessageInput:
+      type: object
+      properties:
+        content:
+          type: string
+          minLength: 1
+        providerId:
+          type: ["string", "null"]
+      required: [content]
+    AssistantMessagePair:
+      type: object
+      properties:
+        userMessage:
+          $ref: "#/components/schemas/AssistantMessage"
+        assistantMessage:
+          $ref: "#/components/schemas/AssistantMessage"
+      required: [userMessage, assistantMessage]
+    AssistantMemory:
+      type: object
+      properties:
+        id:
+          type: integer
+        label:
+          type: string
+        content:
+          type: string
+        category:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, label, content, category, createdAt]
+    AssistantMemoryInput:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+        content:
+          type: string
+          minLength: 1
+        category:
+          type: string
+      required: [label, content, category]
+    AssistantConnection:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        icon:
+          type: string
+        available:
+          type: boolean
+      required: [id, name, description, status, icon, available]
     HealthStatus:
       type: object
       properties:

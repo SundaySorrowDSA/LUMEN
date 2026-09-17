@@ -1,0 +1,1 @@
+- [Generated client typecheck](generated-client-typecheck.md) — the shared API client needs DOM iterable types for generated Headers.entries usage.

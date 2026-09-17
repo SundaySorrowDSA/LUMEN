@@ -1,6 +1,6 @@
-# [Project name]
+# Lumen — Personal AI Assistant
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Lumen is a personal AI workspace that keeps one assistant personality across conversations, memory, model routing, and permissioned actions.
 
 ## Run & Operate
 
@@ -22,15 +22,28 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/personal-ai-assistant` — the responsive assistant workspace
+- `artifacts/api-server/src/routes/assistant.ts` — assistant API and preview-mode reply behavior
+- `lib/assistant-providers/src/index.ts` — provider-neutral model contract, registry, and router
+- `lib/api-spec/openapi.yaml` — source of truth for assistant API contracts
+- `lib/db/src/schema/assistant.ts` — conversations, messages, and memory tables
+- `artifacts/personal-ai-assistant/src/index.css` — shared visual theme
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The first build is intentionally provider-neutral and exposes the active model route in the UI.
+- Provider credentials are never stored in PostgreSQL; each provider has independent secret names and runtime-only readiness checks.
+- The router always has a no-key local preview provider and can accept separate Kindroid, OpenAI, Anthropic/Claude, or future adapters without making one provider primary.
+- External capabilities are represented as permissioned connection states instead of silently implying access.
+- Conversation and memory data are persisted in PostgreSQL; the workspace seeds a small starter context on first load.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- One consistent assistant workspace with conversation history and a visible routing status.
+- Saved memory entries that can be added or removed by the user.
+- A connections view for memory, web research, workspace services, and permissioned actions.
+- An independent model-provider catalog with safe readiness status and active-route selection.
+- Preview-mode responses that preserve user messages until a live model provider is connected.
 
 ## User preferences
 
