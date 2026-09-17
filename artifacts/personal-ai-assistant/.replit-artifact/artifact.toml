@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Personal AI Assistant"
+description = "A personal AI workspace with one consistent personality, model routing, persistent memory, web-aware answers, and permissioned action workflows."
+version = "1.0.0"
+id = "artifacts/personal-ai-assistant"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22997
+
+[services.development]
+run = "pnpm --filter @workspace/personal-ai-assistant run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/personal-ai-assistant", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/personal-ai-assistant/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22997"
+BASE_PATH = "/"
