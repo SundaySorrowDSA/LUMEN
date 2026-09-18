@@ -1,5 +1,5 @@
 import { createInsertSchema } from "drizzle-zod";
-import { integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { z } from "zod/v4";
 
 export const assistantConversationsTable = pgTable("assistant_conversations", {
@@ -40,7 +40,21 @@ export const assistantRemindersTable = pgTable("assistant_reminders", {
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  notificationSentAt: timestamp("notification_sent_at", { withTimezone: true }),
 });
+
+export const assistantPushSubscriptionsTable = pgTable(
+  "assistant_push_subscriptions",
+  {
+    id: serial("id").primaryKey(),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [uniqueIndex("assistant_push_subscriptions_endpoint_idx").on(table.endpoint)],
+);
 
 export const insertAssistantConversationSchema = createInsertSchema(assistantConversationsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertAssistantMessageSchema = createInsertSchema(assistantMessagesTable).omit({ id: true, createdAt: true });
@@ -55,3 +69,4 @@ export type AssistantMemory = typeof assistantMemoryTable.$inferSelect;
 export const insertAssistantProviderSettingsSchema = createInsertSchema(assistantProviderSettingsTable).omit({ id: true, updatedAt: true });
 export type AssistantProviderSettings = typeof assistantProviderSettingsTable.$inferSelect;
 export type AssistantReminder = typeof assistantRemindersTable.$inferSelect;
+export type AssistantPushSubscription = typeof assistantPushSubscriptionsTable.$inferSelect;

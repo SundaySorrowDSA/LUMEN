@@ -4,7 +4,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import {
-  Activity, Archive, ArrowUp, Brain, Check, ChevronRight, CircleHelp, Cloud,
+  Activity, Archive, ArrowUp, Bell, Brain, Check, ChevronRight, CircleHelp, Cloud,
   Ellipsis, FileText, FolderOpen, Globe2, Link2, Loader2,
   MessageSquare, Plus, Settings2, ShieldCheck, Sparkles,
   Trash2, Waypoints, Wifi, X, Zap,
@@ -33,6 +33,79 @@ import { Link, Route, Switch, useLocation } from 'wouter';
 import NotFound from '@/pages/not-found';
 
 const queryClient = new QueryClient();
+
+function urlBase64ToUint8Array(value: string) {
+  const padding = '='.repeat((4 - value.length % 4) % 4);
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+}
+
+function NotificationControl({ compact = false }: { compact?: boolean }) {
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const [state, setState] = useState<'checking' | 'disabled' | 'enabled' | 'unavailable'>('checking');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!supported) {
+      setState('unavailable');
+      return;
+    }
+    navigator.serviceWorker.getRegistration(`${import.meta.env.BASE_URL}`).then(async (registration) => {
+      const subscription = await registration?.pushManager.getSubscription();
+      setState(subscription ? 'enabled' : 'disabled');
+    }).catch(() => setState('disabled'));
+  }, [supported]);
+
+  const toggle = async () => {
+    if (!supported || busy) return;
+    setBusy(true);
+    try {
+      const registration = await navigator.serviceWorker.register(
+        `${import.meta.env.BASE_URL}sw.js`,
+        { scope: import.meta.env.BASE_URL },
+      );
+      const existing = await registration.pushManager.getSubscription();
+      if (existing) {
+        await fetch('/api/push/subscriptions', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ endpoint: existing.endpoint }),
+        });
+        await existing.unsubscribe();
+        setState('disabled');
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setState('disabled');
+        return;
+      }
+      const configResponse = await fetch('/api/push/config');
+      const config = await configResponse.json() as { configured: boolean; publicKey: string | null };
+      if (!config.configured || !config.publicKey) throw new Error('Push delivery is not configured');
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(config.publicKey),
+      });
+      const saveResponse = await fetch('/api/push/subscriptions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(subscription.toJSON()),
+      });
+      if (!saveResponse.ok) {
+        await subscription.unsubscribe();
+        throw new Error('Could not save notification subscription');
+      }
+      setState('enabled');
+    } catch {
+      setState('unavailable');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <button onClick={toggle} disabled={state === 'unavailable' || busy} aria-label={state === 'enabled' ? 'Disable notifications' : 'Enable notifications'} className={compact ? 'flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-primary shadow-lg disabled:opacity-50' : 'mb-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-50'} data-testid={compact ? 'button-notifications-mobile' : 'button-notifications'}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Bell size={16} />}{!compact && <><span>{state === 'enabled' ? 'Notifications on' : state === 'unavailable' ? 'Notifications unavailable' : 'Enable notifications'}</span></>}</button>;
+}
 
 const formatDate = (value?: string) => {
   if (!value) return 'Just now';
@@ -73,10 +146,12 @@ function AppShell({ children }: { children: ReactNode }) {
             <div className="mb-3 flex items-center justify-between"><span className="font-mono text-[9px] uppercase tracking-[.16em] text-sidebar-foreground/45">System note</span><ShieldCheck size={14} className="text-sidebar-primary" /></div>
             <p className="text-xs leading-relaxed text-sidebar-foreground/70">Lumen keeps your context close and your permissions explicit.</p>
           </div>
+          <NotificationControl />
           <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground" data-testid="button-settings"><Settings2 size={16} /><span>Preferences</span><ChevronRight size={14} className="ml-auto opacity-50" /></button>
         </div>
       </aside>
       <div className="md:pl-[250px]">{children}</div>
+      <div className="fixed right-4 top-4 z-30 md:hidden"><NotificationControl compact /></div>
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 px-3 py-2 backdrop-blur md:hidden">
         <nav className="mx-auto flex max-w-md justify-around">
           {nav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} data-testid={`link-mobile-${label.toLowerCase()}`} className={`flex flex-col items-center gap-1 px-5 py-1 text-[10px] ${location === href ? 'text-primary' : 'text-muted-foreground'}`}><Icon size={18} /><span>{label}</span></Link>)}
