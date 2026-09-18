@@ -37,6 +37,12 @@ import {
   buildCalculationContext,
   calculateForMessage,
 } from "../tools/calculator.js";
+import {
+  buildWorkScheduleContext,
+  ensureWorkScheduleResponseAccuracy,
+  getWorkSchedule,
+  requiresWorkScheduleInformation,
+} from "../tools/work-schedule.js";
 
 const router: IRouter = Router();
 const providerRouter = new ProviderRouter(process.env);
@@ -306,11 +312,17 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     ? await searchWeb(body.content)
     : null;
   const calculation = calculateForMessage(body.content);
+  const workSchedule = requiresWorkScheduleInformation(body.content)
+    ? await getWorkSchedule(body.content, process.env.WHEN_I_WORK_CALENDAR_URL)
+    : null;
   let providerContent = webSearch
     ? buildWebSearchContext(body.content, webSearch)
     : body.content;
   if (calculation) {
     providerContent = buildCalculationContext(providerContent, calculation);
+  }
+  if (workSchedule) {
+    providerContent = buildWorkScheduleContext(providerContent, workSchedule);
   }
   const result = await providerRouter.complete({
     requestedProvider: (body.providerId ?? activeProviderId) as ProviderId,
@@ -322,6 +334,9 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
       }))
       .concat({ role: "user", content: providerContent }),
   });
+  const assistantContent = workSchedule
+    ? ensureWorkScheduleResponseAccuracy(result.content, workSchedule)
+    : result.content;
 
   const [userMessage] = await db
     .insert(assistantMessagesTable)
@@ -338,7 +353,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     .values({
       conversationId: params.id,
       role: "assistant",
-      content: result.content,
+      content: assistantContent,
       model: result.model,
       metadata: JSON.stringify({
         providerId: result.providerId,
@@ -360,6 +375,14 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
                 expression: calculation.expression,
                 result: calculation.result,
                 resultText: calculation.resultText,
+              }]
+            : []),
+          ...(workSchedule
+            ? [{
+                id: workSchedule.tool,
+                requestType: workSchedule.requestType,
+                retrievedAt: workSchedule.retrievedAt,
+                eventCount: workSchedule.events.length,
               }]
             : []),
         ],
