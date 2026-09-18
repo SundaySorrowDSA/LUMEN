@@ -31,6 +31,7 @@ import {
 
 const router: IRouter = Router();
 const providerRouter = new ProviderRouter(process.env);
+const DEFAULT_PROVIDER_ID: ProviderId = "kindroid";
 const kindroidApiKey = process.env.KINDROID_API_KEY;
 const kindroidAiId = process.env.KINDROID_AI_ID;
 
@@ -119,7 +120,7 @@ async function seedWorkspace() {
 
   const providerSettings = await db.select().from(assistantProviderSettingsTable).limit(1);
   if (providerSettings.length === 0) {
-    await db.insert(assistantProviderSettingsTable).values({ activeProviderId: "local-preview" });
+    await db.insert(assistantProviderSettingsTable).values({ activeProviderId: DEFAULT_PROVIDER_ID });
   }
 
   return conversation;
@@ -133,7 +134,9 @@ function ensureWorkspaceSeed() {
 async function getActiveProviderId() {
   await ensureWorkspaceSeed();
   const [settings] = await db.select().from(assistantProviderSettingsTable).limit(1);
-  return settings?.activeProviderId ?? "local-preview";
+  const selectedProviderId = (settings?.activeProviderId ?? DEFAULT_PROVIDER_ID) as ProviderId;
+  const selectedProvider = providerRouter.list().find((provider) => provider.id === selectedProviderId);
+  return selectedProvider?.configured ? selectedProviderId : "local-preview";
 }
 
 function providerResponseShape() {

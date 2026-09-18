@@ -29,7 +29,7 @@ export const assistantMemoryTable = pgTable("assistant_memory", {
 
 export const assistantProviderSettingsTable = pgTable("assistant_provider_settings", {
   id: serial("id").primaryKey(),
-  activeProviderId: text("active_provider_id").notNull().default("local-preview"),
+  activeProviderId: text("active_provider_id").notNull().default("kindroid"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
