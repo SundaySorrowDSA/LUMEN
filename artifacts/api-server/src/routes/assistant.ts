@@ -46,6 +46,11 @@ import {
   getWorkSchedule,
   requiresWorkScheduleInformation,
 } from "../tools/work-schedule.js";
+import {
+  buildReminderContext,
+  requiresReminderTool,
+  runReminderTool,
+} from "../tools/reminders.js";
 
 const router: IRouter = Router();
 const providerRouter = new ProviderRouter(process.env);
@@ -311,7 +316,12 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   }
 
   const activeProviderId = await getActiveProviderId();
-  const workScheduleRequested = requiresWorkScheduleInformation(body.content);
+  const reminderRequested = requiresReminderTool(body.content);
+  const reminder = reminderRequested
+    ? await runReminderTool(body.content)
+    : null;
+  const workScheduleRequested =
+    !reminderRequested && requiresWorkScheduleInformation(body.content);
   const workSchedule = workScheduleRequested
     ? await getWorkSchedule(body.content, process.env.WHEN_I_WORK_CALENDAR_URL)
     : null;
@@ -321,6 +331,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
       ? calculateWeeklyGrossPay(getTotalScheduledHours(workSchedule), hourlyRate)
       : calculateForMessage(body.content);
   const webSearchRequested =
+    !reminderRequested &&
     !workScheduleRequested &&
     !calculation &&
     requiresCurrentWebInformation(body.content);
@@ -335,6 +346,9 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   }
   if (calculation) {
     providerContent = buildCalculationContext(providerContent, calculation);
+  }
+  if (reminder) {
+    providerContent = buildReminderContext(body.content, reminder);
   }
   const result = await providerRouter.complete({
     requestedProvider: (body.providerId ?? activeProviderId) as ProviderId,
@@ -398,6 +412,14 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
                 ...(calculation.breakdown
                   ? { breakdown: calculation.breakdown }
                   : {}),
+              }]
+            : []),
+          ...(reminder
+            ? [{
+                id: reminder.tool,
+                action: reminder.action,
+                status: reminder.status,
+                reminderIds: reminder.reminders.map((item) => item.id),
               }]
             : []),
         ],

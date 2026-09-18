@@ -33,6 +33,15 @@ export const assistantProviderSettingsTable = pgTable("assistant_provider_settin
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
+export const assistantRemindersTable = pgTable("assistant_reminders", {
+  id: serial("id").primaryKey(),
+  text: text("text").notNull(),
+  dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+});
+
 export const insertAssistantConversationSchema = createInsertSchema(assistantConversationsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertAssistantMessageSchema = createInsertSchema(assistantMessagesTable).omit({ id: true, createdAt: true });
 export const insertAssistantMemorySchema = createInsertSchema(assistantMemoryTable).omit({ id: true, createdAt: true });
@@ -45,3 +54,4 @@ export type InsertAssistantMemory = z.infer<typeof insertAssistantMemorySchema>;
 export type AssistantMemory = typeof assistantMemoryTable.$inferSelect;
 export const insertAssistantProviderSettingsSchema = createInsertSchema(assistantProviderSettingsTable).omit({ id: true, updatedAt: true });
 export type AssistantProviderSettings = typeof assistantProviderSettingsTable.$inferSelect;
+export type AssistantReminder = typeof assistantRemindersTable.$inferSelect;
