@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/reac
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { toast } from '@/hooks/use-toast';
 import {
   Activity, Archive, ArrowUp, Bell, Brain, Check, ChevronRight, CircleHelp, Cloud,
   Ellipsis, FileText, FolderOpen, Globe2, Link2, Loader2,
@@ -44,6 +45,12 @@ function NotificationControl({ compact = false }: { compact?: boolean }) {
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   const [state, setState] = useState<'checking' | 'disabled' | 'enabled' | 'unavailable'>('checking');
   const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ title: string; description?: string } | null>(null);
+
+  const showFeedback = (title: string, description?: string) => {
+    setFeedback({ title, description });
+    toast({ title, description });
+  };
 
   useEffect(() => {
     if (!supported) {
@@ -57,30 +64,67 @@ function NotificationControl({ compact = false }: { compact?: boolean }) {
   }, [supported]);
 
   const toggle = async () => {
-    if (!supported || busy) return;
+    if (busy) return;
+    if (!supported) {
+      showFeedback(
+        'Notifications are not available here',
+        'Open Lumen in a browser that supports web push notifications.',
+      );
+      return;
+    }
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      ('standalone' in navigator && Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
+    if (isIOS && !isStandalone) {
+      showFeedback(
+        'Add Lumen to your Home Screen',
+        'In Safari, tap Share, choose Add to Home Screen, then open Lumen there and tap the bell again.',
+      );
+      return;
+    }
+    setFeedback(null);
     setBusy(true);
     try {
-      const registration = await navigator.serviceWorker.register(
+      await navigator.serviceWorker.register(
         `${import.meta.env.BASE_URL}sw.js`,
         { scope: import.meta.env.BASE_URL },
       );
+      const registration = await navigator.serviceWorker.ready;
       const existing = await registration.pushManager.getSubscription();
       if (existing) {
-        await fetch('/api/push/subscriptions', {
+        const removeResponse = await fetch('/api/push/subscriptions', {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ endpoint: existing.endpoint }),
         });
+        if (!removeResponse.ok) throw new Error('Could not remove the notification subscription.');
         await existing.unsubscribe();
+        setState('disabled');
+        showFeedback('Notifications turned off');
+        return;
+      }
+      if (Notification.permission === 'denied') {
+        showFeedback(
+          'Notifications are blocked',
+          'Allow notifications for Lumen in your iPhone settings, then tap the bell again.',
+        );
         setState('disabled');
         return;
       }
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') {
         setState('disabled');
+        showFeedback(
+          permission === 'denied' ? 'Notifications are blocked' : 'Notifications were not enabled',
+          permission === 'denied'
+            ? 'Allow notifications for Lumen in your device settings, then tap the bell again.'
+            : 'Tap the bell whenever you are ready to enable them.',
+        );
         return;
       }
       const configResponse = await fetch('/api/push/config');
+      if (!configResponse.ok) throw new Error('Could not load notification configuration.');
       const config = await configResponse.json() as { configured: boolean; publicKey: string | null };
       if (!config.configured || !config.publicKey) throw new Error('Push delivery is not configured');
       const subscription = await registration.pushManager.subscribe({
@@ -97,14 +141,28 @@ function NotificationControl({ compact = false }: { compact?: boolean }) {
         throw new Error('Could not save notification subscription');
       }
       setState('enabled');
-    } catch {
-      setState('unavailable');
+      showFeedback('Notifications enabled', 'Lumen can now send reminder notifications to this device.');
+    } catch (error) {
+      setState('disabled');
+      showFeedback(
+        'Could not enable notifications',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
     } finally {
       setBusy(false);
     }
   };
 
-  return <button onClick={toggle} disabled={state === 'unavailable' || busy} aria-label={state === 'enabled' ? 'Disable notifications' : 'Enable notifications'} className={compact ? 'flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-primary shadow-lg disabled:opacity-50' : 'mb-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-50'} data-testid={compact ? 'button-notifications-mobile' : 'button-notifications'}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Bell size={16} />}{!compact && <><span>{state === 'enabled' ? 'Notifications on' : state === 'unavailable' ? 'Notifications unavailable' : 'Enable notifications'}</span></>}</button>;
+  return <div className={compact ? '' : 'w-full'}>
+    <button onClick={toggle} disabled={busy} aria-label={state === 'enabled' ? 'Disable notifications' : 'Enable notifications'} className={compact ? 'flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-primary shadow-lg disabled:opacity-50' : 'mb-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:cursor-not-allowed disabled:opacity-50'} data-testid={compact ? 'button-notifications-mobile' : 'button-notifications'}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Bell size={16} />}{!compact && <><span>{state === 'enabled' ? 'Notifications on' : state === 'unavailable' ? 'Notifications unavailable' : 'Enable notifications'}</span></>}</button>
+    {feedback && <div role="status" aria-live="polite" className={compact ? 'fixed right-4 top-16 w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-border bg-card p-4 text-left text-foreground shadow-xl' : 'mb-3 rounded-lg border border-sidebar-border bg-sidebar-accent/60 p-3 text-sidebar-foreground'}>
+      <div className="flex items-start gap-3">
+        <Bell size={15} className="mt-0.5 shrink-0 text-primary" />
+        <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{feedback.title}</p>{feedback.description && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{feedback.description}</p>}</div>
+        <button type="button" onClick={() => setFeedback(null)} aria-label="Dismiss notification message" className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><X size={14} /></button>
+      </div>
+    </div>}
+  </div>;
 }
 
 const formatDate = (value?: string) => {
