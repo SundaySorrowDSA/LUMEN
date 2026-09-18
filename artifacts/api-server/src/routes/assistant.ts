@@ -23,10 +23,26 @@ import {
   assistantProviderSettingsTable,
   db,
 } from "@workspace/db";
-import { ProviderRouter, type ProviderId } from "@workspace/assistant-providers";
+import {
+  createKindroidProvider,
+  ProviderRouter,
+  type ProviderId,
+} from "@workspace/assistant-providers";
 
 const router: IRouter = Router();
 const providerRouter = new ProviderRouter(process.env);
+const kindroidApiKey = process.env.KINDROID_API_KEY;
+const kindroidAiId = process.env.KINDROID_AI_ID;
+
+if (kindroidApiKey && kindroidAiId) {
+  providerRouter.register(
+    createKindroidProvider({
+      apiKey: kindroidApiKey,
+      aiId: kindroidAiId,
+      fetch,
+    }),
+  );
+}
 
 const connectionCatalog = [
   {

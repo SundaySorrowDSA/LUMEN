@@ -34,6 +34,7 @@ Lumen is a personal AI workspace that keeps one assistant personality across con
 - The first build is intentionally provider-neutral and exposes the active model route in the UI.
 - Provider credentials are never stored in PostgreSQL; each provider has independent secret names and runtime-only readiness checks.
 - The router always has a no-key local preview provider and can accept separate Kindroid, OpenAI, Anthropic/Claude, or future adapters without making one provider primary.
+- The live Kindroid adapter uses only `KINDROID_API_KEY` and `KINDROID_AI_ID` from Replit Secrets and calls Kindroid's official `/v1/send-message` endpoint with a non-streaming request.
 - External capabilities are represented as permissioned connection states instead of silently implying access.
 - Conversation and memory data are persisted in PostgreSQL; the workspace seeds a small starter context on first load.
 

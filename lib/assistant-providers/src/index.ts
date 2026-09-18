@@ -53,6 +53,7 @@ type ProviderDefinition = Omit<
   "status" | "configured" | "baseUrlConfigured" | "credentialConfigured"
 > & {
   credentialEnv: string | null;
+  additionalRequiredEnvs?: string[];
   baseUrlEnv: string | null;
   modelEnv: string | null;
   defaultModel: string;
@@ -83,8 +84,9 @@ const definitions: ProviderDefinition[] = [
     defaultModel: "kindroid",
     credentialSecret: "KINDROID_API_KEY",
     credentialEnv: "KINDROID_API_KEY",
-    baseUrlEnv: "KINDROID_API_BASE_URL",
-    modelEnv: "KINDROID_MODEL",
+    additionalRequiredEnvs: ["KINDROID_AI_ID"],
+    baseUrlEnv: null,
+    modelEnv: null,
     capabilities: ["conversation"],
     statusWhenConfigured: "ready",
   },
@@ -122,7 +124,12 @@ function getConfiguredDefinition(
   definition: ProviderDefinition,
   environment: ProviderEnvironment,
 ): ProviderDescriptor {
-  const credentialConfigured = Boolean(definition.credentialEnv && environment[definition.credentialEnv]);
+  const requiredCredentialEnvs = [
+    ...(definition.credentialEnv ? [definition.credentialEnv] : []),
+    ...(definition.additionalRequiredEnvs ?? []),
+  ];
+  const credentialConfigured =
+    requiredCredentialEnvs.length > 0 && requiredCredentialEnvs.every((name) => Boolean(environment[name]));
   const baseUrlConfigured = Boolean(!definition.baseUrlEnv || environment[definition.baseUrlEnv]);
   const configured = definition.id === "local-preview" || (credentialConfigured && baseUrlConfigured);
 
@@ -150,6 +157,91 @@ export function getProviderDescriptor(
   environment: ProviderEnvironment = {},
 ): ProviderDescriptor | undefined {
   return listProviderDescriptors(environment).find((provider) => provider.id === providerId);
+}
+
+type ProviderFetchResponse = {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text(): Promise<string>;
+};
+
+export type ProviderFetch = (
+  url: string,
+  init: {
+    method: "POST";
+    headers: Record<string, string>;
+    body: string;
+  },
+) => Promise<ProviderFetchResponse>;
+
+export type KindroidProviderOptions = {
+  apiKey: string;
+  aiId: string;
+  fetch: ProviderFetch;
+};
+
+function redactKindroidError(value: string, apiKey: string, aiId: string): string {
+  return value
+    .replaceAll(apiKey, "[redacted]")
+    .replaceAll(aiId, "[redacted]")
+    .trim()
+    .slice(0, 240);
+}
+
+export function createKindroidProvider(options: KindroidProviderOptions): ModelProvider {
+  const descriptor = getProviderDescriptor("kindroid", {
+    KINDROID_API_KEY: options.apiKey,
+    KINDROID_AI_ID: options.aiId,
+  });
+  if (!descriptor) throw new Error("Kindroid provider definition is missing");
+
+  return {
+    descriptor,
+    async complete(request) {
+      const latestUserMessage = [...request.messages].reverse().find((message) => message.role === "user");
+      if (!latestUserMessage?.content.trim()) {
+        throw new Error("Kindroid requires a non-empty user message");
+      }
+
+      let response: ProviderFetchResponse;
+      try {
+        response = await options.fetch("https://api.kindroid.ai/v1/send-message", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${options.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ai_id: options.aiId,
+            message: latestUserMessage.content,
+            stream: false,
+          }),
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Unknown network error";
+        throw new Error(`Kindroid request failed before a response was received: ${redactKindroidError(detail, options.apiKey, options.aiId)}`);
+      }
+
+      const content = await response.text();
+      if (!response.ok) {
+        const detail = redactKindroidError(content, options.apiKey, options.aiId);
+        throw new Error(
+          `Kindroid API returned ${response.status} ${response.statusText}${detail ? `: ${detail}` : ""}`,
+        );
+      }
+      if (!content.trim()) {
+        throw new Error("Kindroid API returned an empty response");
+      }
+
+      return {
+        providerId: "kindroid",
+        model: descriptor.model,
+        content,
+        metadata: { mode: "provider", routedBy: "provider-router" },
+      };
+    },
+  };
 }
 
 function previewResponse(request: ModelRequest): ModelResult {
