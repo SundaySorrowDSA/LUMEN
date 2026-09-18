@@ -28,6 +28,11 @@ import {
   ProviderRouter,
   type ProviderId,
 } from "@workspace/assistant-providers";
+import {
+  buildWebSearchContext,
+  requiresCurrentWebInformation,
+  searchWeb,
+} from "../tools/web-search.js";
 
 const router: IRouter = Router();
 const providerRouter = new ProviderRouter(process.env);
@@ -57,10 +62,10 @@ const connectionCatalog = [
   {
     id: "web",
     name: "Web research",
-    description: "Bring fresh information into a conversation.",
-    status: "Connect later",
+    description: "Live web search for current information and source links.",
+    status: "Active",
     icon: "globe",
-    available: false,
+    available: true,
   },
   {
     id: "google",
@@ -293,6 +298,12 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   }
 
   const activeProviderId = await getActiveProviderId();
+  const webSearch = requiresCurrentWebInformation(body.content)
+    ? await searchWeb(body.content)
+    : null;
+  const providerContent = webSearch
+    ? buildWebSearchContext(body.content, webSearch)
+    : body.content;
   const result = await providerRouter.complete({
     requestedProvider: (body.providerId ?? activeProviderId) as ProviderId,
     messages: conversation.messages
@@ -301,7 +312,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
         role: message.role as "user" | "assistant",
         content: message.content,
       }))
-      .concat({ role: "user", content: body.content }),
+      .concat({ role: "user", content: providerContent }),
   });
 
   const [userMessage] = await db
@@ -325,7 +336,14 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
         providerId: result.providerId,
         route: result.metadata.routedBy,
         mode: result.metadata.mode,
-        sources: [],
+        sources: webSearch?.results.map(({ title, url }) => ({ title, url })) ?? [],
+        tools: webSearch
+          ? [{
+              id: webSearch.tool,
+              query: webSearch.query,
+              retrievedAt: webSearch.retrievedAt,
+            }]
+          : [],
         approvalRequired: false,
       }),
     })

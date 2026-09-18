@@ -36,6 +36,7 @@ Lumen is a personal AI workspace that keeps one assistant personality across con
 - The router always has a no-key local preview provider and can accept separate Kindroid, OpenAI, Anthropic/Claude, or future adapters without making one provider primary.
 - The live Kindroid adapter uses only `KINDROID_API_KEY` and `KINDROID_AI_ID` from Replit Secrets and calls Kindroid's official `/v1/send-message` endpoint with a non-streaming request.
 - Workspace conversations default to the live Kindroid route when it is configured, with Local preview retained only as an availability fallback.
+- Time-sensitive Workspace requests use the credential-free Bing RSS web search tool; result snippets and source URLs are passed to Kindroid as untrusted context and recorded in assistant-message metadata.
 - External capabilities are represented as permissioned connection states instead of silently implying access.
 - Conversation and memory data are persisted in PostgreSQL; the workspace seeds a small starter context on first load.
 
