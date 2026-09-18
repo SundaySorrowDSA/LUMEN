@@ -7,7 +7,14 @@ export type WorkScheduleEvent = {
 
 export type WorkScheduleResult = {
   tool: "when-i-work-calendar";
-  requestType: "next-shift" | "today" | "tomorrow" | "day" | "days-off" | "upcoming";
+  requestType:
+    | "next-shift"
+    | "today"
+    | "tomorrow"
+    | "day"
+    | "days-off"
+    | "this-week"
+    | "upcoming";
   retrievedAt: string;
   timeZone: string;
   events: WorkScheduleEvent[];
@@ -240,6 +247,7 @@ function getRequestType(message: string): WorkScheduleResult["requestType"] {
     return "next-shift";
   }
   if (/\bdays?\s+off\b|\bam\s+i\s+off\b/i.test(message)) return "days-off";
+  if (/\bthis\s+week\b/i.test(message)) return "this-week";
   if (/\btomorrow\b/i.test(message)) return "tomorrow";
   if (/\btoday\b/i.test(message)) return "today";
   if (WEEKDAYS.some((weekday) => new RegExp(`\\b${weekday}\\b`, "i").test(message))) {
@@ -287,9 +295,10 @@ export async function getWorkSchedule(
   if (!calendarUrl) throw new Error("Work schedule is not configured");
   const calendar = parseCalendar(await fetchCalendarFeed(calendarUrl));
   const now = new Date();
-  const upcoming = calendar.events
-    .filter((event) => !event.cancelled && event.start >= now)
+  const activeEvents = calendar.events
+    .filter((event) => !event.cancelled)
     .sort((left, right) => left.start.getTime() - right.start.getTime());
+  const upcoming = activeEvents.filter((event) => event.start >= now);
   const requestType = getRequestType(message);
   const todayKey = dateKey(now, calendar.timeZone);
   let selected: ParsedCalendarEvent[];
@@ -297,6 +306,18 @@ export async function getWorkSchedule(
 
   if (requestType === "next-shift") {
     selected = upcoming.slice(0, 1);
+  } else if (requestType === "this-week") {
+    const currentWeekday = new Intl.DateTimeFormat("en-US", {
+      timeZone: calendar.timeZone,
+      weekday: "long",
+    }).format(now).toLowerCase();
+    const weekday = WEEKDAYS.indexOf(currentWeekday);
+    const weekStartKey = addCalendarDays(now, -weekday, calendar.timeZone);
+    const weekEndKey = addCalendarDays(now, 6 - weekday, calendar.timeZone);
+    selected = activeEvents.filter((event) => {
+      const key = dateKey(event.start, calendar.timeZone);
+      return key >= weekStartKey && key <= weekEndKey;
+    });
   } else if (requestType === "today" || requestType === "tomorrow") {
     const targetKey =
       requestType === "today" ? todayKey : addCalendarDays(now, 1, calendar.timeZone);
@@ -334,6 +355,18 @@ export async function getWorkSchedule(
     events: selected.map((event) => displayEvent(event, calendar.timeZone)),
     daysOff,
   };
+}
+
+export function getTotalScheduledHours(schedule: WorkScheduleResult): number {
+  const milliseconds = schedule.events.reduce((total, event) => {
+    if (!event.endAt) return total;
+    const start = new Date(event.startAt).getTime();
+    const end = new Date(event.endAt).getTime();
+    return Number.isFinite(start) && Number.isFinite(end) && end > start
+      ? total + (end - start)
+      : total;
+  }, 0);
+  return milliseconds / 3_600_000;
 }
 
 export function buildWorkScheduleContext(

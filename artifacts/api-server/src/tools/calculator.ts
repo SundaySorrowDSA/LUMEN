@@ -295,6 +295,37 @@ export function calculateForMessage(message: string): CalculationResult | null {
   );
 }
 
+export function extractHourlyRate(message: string): number | null {
+  const match = message.match(
+    /\$\s*([0-9]+(?:\.[0-9]+)?)\s*(?:an|per|\/)\s*hour\b|\b([0-9]+(?:\.[0-9]+)?)\s+dollars?\s*(?:an|per|\/)\s*hour\b/i,
+  );
+  const rate = Number(match?.[1] ?? match?.[2]);
+  return Number.isFinite(rate) && rate >= 0 ? rate : null;
+}
+
+export function calculateGrossPay(
+  scheduledHours: number,
+  hourlyRate: number,
+): CalculationResult | null {
+  if (
+    !Number.isFinite(scheduledHours) ||
+    !Number.isFinite(hourlyRate) ||
+    scheduledHours < 0 ||
+    hourlyRate < 0
+  ) {
+    return null;
+  }
+  const result = checkedResult(scheduledHours * hourlyRate);
+  if (result === null) return null;
+  return {
+    tool: "safe-calculator",
+    kind: "arithmetic",
+    expression: `${formatNumber(scheduledHours)} scheduled hours × $${hourlyRate.toFixed(2)} per hour`,
+    result,
+    resultText: `$${result.toFixed(2)}`,
+  };
+}
+
 export function buildCalculationContext(message: string, calculation: CalculationResult): string {
   return `[Lumen deterministic calculation]
 Tool: Safe calculator

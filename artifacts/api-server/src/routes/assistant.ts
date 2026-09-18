@@ -35,11 +35,14 @@ import {
 } from "../tools/web-search.js";
 import {
   buildCalculationContext,
+  calculateGrossPay,
   calculateForMessage,
+  extractHourlyRate,
 } from "../tools/calculator.js";
 import {
   buildWorkScheduleContext,
   ensureWorkScheduleResponseAccuracy,
+  getTotalScheduledHours,
   getWorkSchedule,
   requiresWorkScheduleInformation,
 } from "../tools/work-schedule.js";
@@ -309,25 +312,29 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
 
   const activeProviderId = await getActiveProviderId();
   const workScheduleRequested = requiresWorkScheduleInformation(body.content);
-  const calculation = calculateForMessage(body.content);
+  const workSchedule = workScheduleRequested
+    ? await getWorkSchedule(body.content, process.env.WHEN_I_WORK_CALENDAR_URL)
+    : null;
+  const hourlyRate = workSchedule ? extractHourlyRate(body.content) : null;
+  const calculation =
+    workSchedule && hourlyRate !== null && /\b(?:earn|gross\s+pay|make|paid)\b/i.test(body.content)
+      ? calculateGrossPay(getTotalScheduledHours(workSchedule), hourlyRate)
+      : calculateForMessage(body.content);
   const webSearchRequested =
     !workScheduleRequested &&
     !calculation &&
     requiresCurrentWebInformation(body.content);
-  const workSchedule = workScheduleRequested
-    ? await getWorkSchedule(body.content, process.env.WHEN_I_WORK_CALENDAR_URL)
-    : null;
   const webSearch = webSearchRequested
     ? await searchWeb(body.content)
     : null;
   let providerContent = webSearch
     ? buildWebSearchContext(body.content, webSearch)
     : body.content;
-  if (calculation) {
-    providerContent = buildCalculationContext(providerContent, calculation);
-  }
   if (workSchedule) {
     providerContent = buildWorkScheduleContext(providerContent, workSchedule);
+  }
+  if (calculation) {
+    providerContent = buildCalculationContext(providerContent, calculation);
   }
   const result = await providerRouter.complete({
     requestedProvider: (body.providerId ?? activeProviderId) as ProviderId,
@@ -373,6 +380,14 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
               retrievedAt: webSearch.retrievedAt,
             }]
           : []),
+          ...(workSchedule
+            ? [{
+                id: workSchedule.tool,
+                requestType: workSchedule.requestType,
+                retrievedAt: workSchedule.retrievedAt,
+                eventCount: workSchedule.events.length,
+              }]
+            : []),
           ...(calculation
             ? [{
                 id: calculation.tool,
@@ -380,14 +395,6 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
                 expression: calculation.expression,
                 result: calculation.result,
                 resultText: calculation.resultText,
-              }]
-            : []),
-          ...(workSchedule
-            ? [{
-                id: workSchedule.tool,
-                requestType: workSchedule.requestType,
-                retrievedAt: workSchedule.retrievedAt,
-                eventCount: workSchedule.events.length,
               }]
             : []),
         ],
