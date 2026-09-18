@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { logger } from "../lib/logger.js";
 import {
   getPushConfiguration,
   removePushSubscription,
@@ -9,6 +10,37 @@ const router: IRouter = Router();
 
 router.get("/push/config", (_req, res) => {
   res.json(getPushConfiguration());
+});
+
+const diagnosticStages = new Set([
+  "service-worker-registration",
+  "service-worker-ready",
+  "existing-subscription",
+  "permission",
+  "configuration",
+  "public-key-decoding",
+  "push-subscription",
+  "subscription-save",
+  "subscription-remove",
+]);
+
+router.post("/push/diagnostics", (req, res) => {
+  const stage = req.body?.stage;
+  const errorName = req.body?.errorName;
+  const message = req.body?.message;
+  if (
+    typeof stage !== "string" ||
+    !diagnosticStages.has(stage) ||
+    typeof errorName !== "string" ||
+    errorName.length > 80 ||
+    typeof message !== "string" ||
+    message.length > 500
+  ) {
+    res.status(400).json({ error: "Invalid push diagnostic" });
+    return;
+  }
+  logger.warn({ stage, errorName, message }, "Client push subscription failed");
+  res.status(204).send();
 });
 
 router.post("/push/subscriptions", async (req, res) => {

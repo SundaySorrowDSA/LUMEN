@@ -41,6 +41,40 @@ function urlBase64ToUint8Array(value: string) {
   return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
 }
 
+type PushDiagnosticStage =
+  | 'service-worker-registration'
+  | 'service-worker-ready'
+  | 'existing-subscription'
+  | 'permission'
+  | 'configuration'
+  | 'public-key-decoding'
+  | 'push-subscription'
+  | 'subscription-save'
+  | 'subscription-remove';
+
+function safePushError(error: unknown) {
+  const errorName = error instanceof DOMException || error instanceof Error ? error.name : 'UnknownError';
+  const rawMessage = error instanceof Error ? error.message : 'The browser did not provide an error message.';
+  return {
+    errorName: errorName.slice(0, 80),
+    message: rawMessage
+      .replace(/[A-Za-z0-9_-]{40,}/g, '[redacted]')
+      .replace(/https?:\/\/\S+/g, '[redacted-url]')
+      .slice(0, 500),
+  };
+}
+
+function reportPushDiagnostic(stage: PushDiagnosticStage, error: unknown) {
+  const detail = safePushError(error);
+  void fetch('/api/push/diagnostics', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ stage, ...detail }),
+    keepalive: true,
+  }).catch(() => undefined);
+  return detail;
+}
+
 function NotificationControl({ compact = false }: { compact?: boolean }) {
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   const [state, setState] = useState<'checking' | 'disabled' | 'enabled' | 'unavailable'>('checking');
@@ -85,14 +119,18 @@ function NotificationControl({ compact = false }: { compact?: boolean }) {
     }
     setFeedback(null);
     setBusy(true);
+    let stage: PushDiagnosticStage = 'service-worker-registration';
     try {
       await navigator.serviceWorker.register(
         `${import.meta.env.BASE_URL}sw.js`,
         { scope: import.meta.env.BASE_URL },
       );
+      stage = 'service-worker-ready';
       const registration = await navigator.serviceWorker.ready;
+      stage = 'existing-subscription';
       const existing = await registration.pushManager.getSubscription();
       if (existing) {
+        stage = 'subscription-remove';
         const removeResponse = await fetch('/api/push/subscriptions', {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
@@ -104,6 +142,7 @@ function NotificationControl({ compact = false }: { compact?: boolean }) {
         showFeedback('Notifications turned off');
         return;
       }
+      stage = 'permission';
       if (Notification.permission === 'denied') {
         showFeedback(
           'Notifications are blocked',
@@ -123,14 +162,19 @@ function NotificationControl({ compact = false }: { compact?: boolean }) {
         );
         return;
       }
+      stage = 'configuration';
       const configResponse = await fetch('/api/push/config');
       if (!configResponse.ok) throw new Error('Could not load notification configuration.');
       const config = await configResponse.json() as { configured: boolean; publicKey: string | null };
       if (!config.configured || !config.publicKey) throw new Error('Push delivery is not configured');
+      stage = 'public-key-decoding';
+      const applicationServerKey = urlBase64ToUint8Array(config.publicKey);
+      stage = 'push-subscription';
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(config.publicKey),
+        applicationServerKey,
       });
+      stage = 'subscription-save';
       const saveResponse = await fetch('/api/push/subscriptions', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -144,9 +188,10 @@ function NotificationControl({ compact = false }: { compact?: boolean }) {
       showFeedback('Notifications enabled', 'Lumen can now send reminder notifications to this device.');
     } catch (error) {
       setState('disabled');
+      const detail = reportPushDiagnostic(stage, error);
       showFeedback(
         'Could not enable notifications',
-        error instanceof Error ? error.message : 'Please try again.',
+        `${stage}: ${detail.errorName}: ${detail.message}`,
       );
     } finally {
       setBusy(false);
