@@ -1,1 +1,2 @@
 - [Generated client typecheck](generated-client-typecheck.md) — the shared API client needs DOM iterable types for generated Headers.entries usage.
+- [Bing RSS relevance](web-search-relevance.md) — instruction-heavy entity queries can return unrelated pages; require subject validation before model context.
