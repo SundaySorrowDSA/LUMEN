@@ -7,8 +7,8 @@ import {
 } from "@workspace/db";
 
 function configureWebPush() {
-  const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
-  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
+  const publicKey = process.env.VAPID_PUBLIC_KEY?.replace(/\s+/g, "");
+  const privateKey = process.env.VAPID_PRIVATE_KEY?.replace(/\s+/g, "");
   const subject = process.env.VAPID_SUBJECT?.trim();
   if (!publicKey || !privateKey || !subject) return null;
   try {
