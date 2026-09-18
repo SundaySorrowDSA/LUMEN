@@ -308,12 +308,17 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   }
 
   const activeProviderId = await getActiveProviderId();
-  const webSearch = requiresCurrentWebInformation(body.content)
-    ? await searchWeb(body.content)
-    : null;
+  const workScheduleRequested = requiresWorkScheduleInformation(body.content);
   const calculation = calculateForMessage(body.content);
-  const workSchedule = requiresWorkScheduleInformation(body.content)
+  const webSearchRequested =
+    !workScheduleRequested &&
+    !calculation &&
+    requiresCurrentWebInformation(body.content);
+  const workSchedule = workScheduleRequested
     ? await getWorkSchedule(body.content, process.env.WHEN_I_WORK_CALENDAR_URL)
+    : null;
+  const webSearch = webSearchRequested
+    ? await searchWeb(body.content)
     : null;
   let providerContent = webSearch
     ? buildWebSearchContext(body.content, webSearch)

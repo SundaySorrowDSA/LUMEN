@@ -383,7 +383,7 @@ export function ensureWorkScheduleResponseAccuracy(
   content: string,
   schedule: WorkScheduleResult,
 ): string {
-  if (schedule.requestType !== "next-shift" || schedule.events.length !== 1) {
+  if (schedule.events.length !== 1) {
     return content;
   }
 
