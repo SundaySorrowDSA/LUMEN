@@ -33,6 +33,10 @@ import {
   requiresCurrentWebInformation,
   searchWeb,
 } from "../tools/web-search.js";
+import {
+  buildCalculationContext,
+  calculateForMessage,
+} from "../tools/calculator.js";
 
 const router: IRouter = Router();
 const providerRouter = new ProviderRouter(process.env);
@@ -301,9 +305,13 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   const webSearch = requiresCurrentWebInformation(body.content)
     ? await searchWeb(body.content)
     : null;
-  const providerContent = webSearch
+  const calculation = calculateForMessage(body.content);
+  let providerContent = webSearch
     ? buildWebSearchContext(body.content, webSearch)
     : body.content;
+  if (calculation) {
+    providerContent = buildCalculationContext(providerContent, calculation);
+  }
   const result = await providerRouter.complete({
     requestedProvider: (body.providerId ?? activeProviderId) as ProviderId,
     messages: conversation.messages
@@ -337,13 +345,24 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
         route: result.metadata.routedBy,
         mode: result.metadata.mode,
         sources: webSearch?.results.map(({ title, url }) => ({ title, url })) ?? [],
-        tools: webSearch
+        tools: [
+          ...(webSearch
           ? [{
               id: webSearch.tool,
               query: webSearch.query,
               retrievedAt: webSearch.retrievedAt,
             }]
-          : [],
+          : []),
+          ...(calculation
+            ? [{
+                id: calculation.tool,
+                kind: calculation.kind,
+                expression: calculation.expression,
+                result: calculation.result,
+                resultText: calculation.resultText,
+              }]
+            : []),
+        ],
         approvalRequired: false,
       }),
     })
