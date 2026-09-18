@@ -4,6 +4,14 @@ export type CalculationResult = {
   expression: string;
   result: number;
   resultText: string;
+  breakdown?: {
+    regularHours: number;
+    regularRate: number;
+    regularPay: number;
+    overtimeHours: number;
+    overtimeRate: number;
+    overtimePay: number;
+  };
 };
 
 type UnitDefinition = {
@@ -303,7 +311,7 @@ export function extractHourlyRate(message: string): number | null {
   return Number.isFinite(rate) && rate >= 0 ? rate : null;
 }
 
-export function calculateGrossPay(
+export function calculateWeeklyGrossPay(
   scheduledHours: number,
   hourlyRate: number,
 ): CalculationResult | null {
@@ -315,23 +323,50 @@ export function calculateGrossPay(
   ) {
     return null;
   }
-  const result = checkedResult(scheduledHours * hourlyRate);
+  const regularHours = Math.min(scheduledHours, 40);
+  const overtimeHours = Math.max(scheduledHours - 40, 0);
+  const overtimeRate = hourlyRate * 1.5;
+  const regularPay = checkedResult(regularHours * hourlyRate);
+  const overtimePay = checkedResult(overtimeHours * overtimeRate);
+  if (regularPay === null || overtimePay === null) return null;
+  const result = checkedResult(regularPay + overtimePay);
   if (result === null) return null;
   return {
     tool: "safe-calculator",
     kind: "arithmetic",
-    expression: `${formatNumber(scheduledHours)} scheduled hours × $${hourlyRate.toFixed(2)} per hour`,
+    expression:
+      `${formatNumber(regularHours)} regular hours × $${hourlyRate.toFixed(2)} per hour` +
+      ` + ${formatNumber(overtimeHours)} overtime hours × $${overtimeRate.toFixed(2)} per hour`,
     result,
     resultText: `$${result.toFixed(2)}`,
+    breakdown: {
+      regularHours,
+      regularRate: hourlyRate,
+      regularPay,
+      overtimeHours,
+      overtimeRate,
+      overtimePay,
+    },
   };
 }
 
 export function buildCalculationContext(message: string, calculation: CalculationResult): string {
+  const breakdown = calculation.breakdown
+    ? `
+Regular hours: ${formatNumber(calculation.breakdown.regularHours)}
+Regular rate: $${calculation.breakdown.regularRate.toFixed(2)} per hour
+Regular pay: $${calculation.breakdown.regularPay.toFixed(2)}
+Overtime hours: ${formatNumber(calculation.breakdown.overtimeHours)}
+Overtime rate: $${calculation.breakdown.overtimeRate.toFixed(2)} per hour
+Overtime pay: $${calculation.breakdown.overtimePay.toFixed(2)}
+`
+    : "";
   return `[Lumen deterministic calculation]
 Tool: Safe calculator
 Type: ${calculation.kind}
 Calculation: ${calculation.expression}
 Result: ${calculation.resultText}
+${breakdown}
 
 The calculation above was produced deterministically by Lumen using a restricted numeric parser and fixed conversion tables. Use this result as factual context for the final response. Do not redo or contradict the arithmetic.
 

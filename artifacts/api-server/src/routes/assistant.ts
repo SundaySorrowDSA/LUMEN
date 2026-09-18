@@ -35,8 +35,8 @@ import {
 } from "../tools/web-search.js";
 import {
   buildCalculationContext,
-  calculateGrossPay,
   calculateForMessage,
+  calculateWeeklyGrossPay,
   extractHourlyRate,
 } from "../tools/calculator.js";
 import {
@@ -318,7 +318,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   const hourlyRate = workSchedule ? extractHourlyRate(body.content) : null;
   const calculation =
     workSchedule && hourlyRate !== null && /\b(?:earn|gross\s+pay|make|paid)\b/i.test(body.content)
-      ? calculateGrossPay(getTotalScheduledHours(workSchedule), hourlyRate)
+      ? calculateWeeklyGrossPay(getTotalScheduledHours(workSchedule), hourlyRate)
       : calculateForMessage(body.content);
   const webSearchRequested =
     !workScheduleRequested &&
@@ -395,6 +395,9 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
                 expression: calculation.expression,
                 result: calculation.result,
                 resultText: calculation.resultText,
+                ...(calculation.breakdown
+                  ? { breakdown: calculation.breakdown }
+                  : {}),
               }]
             : []),
         ],
