@@ -12,6 +12,7 @@ export type WorkScheduleResult = {
     | "today"
     | "tomorrow"
     | "day"
+    | "date"
     | "days-off"
     | "this-week"
     | "upcoming";
@@ -30,7 +31,7 @@ type ParsedCalendarEvent = {
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 const WORK_SCHEDULE_INTENT =
-  /\b(next\s+(?:work\s+)?shift|work\s+schedule|work\s+shift|work\s+times?|scheduled\s+to\s+work|when\s+(?:do|am)\s+i\s+work|what\s+time\s+(?:do|am)\s+i\s+work|days?\s+off|am\s+i\s+off|working\s+(?:today|tomorrow|this\s+week|next\s+week|on\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)))\b/i;
+  /\b(next\s+(?:work\s+)?shift|work\s+schedule|work\s+shift|work\s+times?|scheduled\s+to\s+work|when\s+(?:do|am)\s+i\s+work|what\s+time\s+(?:do|am)\s+i\s+work|days?\s+off|am\s+i\s+off|working\s+(?:today|tomorrow|this\s+week|next\s+week|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|on\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)))\b/i;
 
 const WEEKDAYS = [
   "sunday",
@@ -216,6 +217,61 @@ function formatDateLabel(dateKeyValue: string, timeZone: string): string {
   }).format(new Date(Date.UTC(year, month - 1, day, 12)));
 }
 
+function getRequestedDateKey(
+  message: string,
+  now: Date,
+  timeZone: string,
+): string | null {
+  const nextWeekdayMatch = message.match(
+    /\bnext\s+(?:work\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i,
+  );
+  if (nextWeekdayMatch) {
+    const currentWeekday = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      weekday: "long",
+    }).format(now).toLowerCase();
+    const currentIndex = WEEKDAYS.indexOf(currentWeekday);
+    const targetIndex = WEEKDAYS.indexOf(nextWeekdayMatch[1].toLowerCase());
+    const daysAhead = (targetIndex - currentIndex + WEEKDAYS.length) % WEEKDAYS.length || 7;
+    return addCalendarDays(now, daysAhead, timeZone);
+  }
+
+  const isoMatch = message.match(/\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b/);
+  if (isoMatch) {
+    const year = Number(isoMatch[1]);
+    const month = Number(isoMatch[2]);
+    const day = Number(isoMatch[3]);
+    const candidate = new Date(Date.UTC(year, month - 1, day, 12));
+    if (
+      candidate.getUTCFullYear() === year &&
+      candidate.getUTCMonth() === month - 1 &&
+      candidate.getUTCDate() === day
+    ) {
+      return dateKey(candidate, timeZone);
+    }
+  }
+
+  const namedDateMatch = message.match(
+    /\b(?:on\s+)?(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:,?\s+(20\d{2}))?\b/i,
+  );
+  if (namedDateMatch) {
+    const month = new Date(`${namedDateMatch[1]} 1, 2000`).getMonth();
+    const day = Number(namedDateMatch[2]);
+    const currentYear = Number(dateKey(now, timeZone).slice(0, 4));
+    let year = Number(namedDateMatch[3] ?? currentYear);
+    let candidate = new Date(Date.UTC(year, month, day, 12));
+    if (!namedDateMatch[3] && candidate < new Date(Date.UTC(currentYear, new Date(dateKey(now, timeZone)).getUTCMonth(), new Date(dateKey(now, timeZone)).getUTCDate(), 12))) {
+      year += 1;
+      candidate = new Date(Date.UTC(year, month, day, 12));
+    }
+    if (candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month && candidate.getUTCDate() === day) {
+      return dateKey(candidate, timeZone);
+    }
+  }
+
+  return null;
+}
+
 function displayEvent(event: ParsedCalendarEvent, timeZone: string): WorkScheduleEvent {
   const dateFormatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -245,6 +301,13 @@ function displayEvent(event: ParsedCalendarEvent, timeZone: string): WorkSchedul
 function getRequestType(message: string): WorkScheduleResult["requestType"] {
   if (/\bnext\s+(?:work\s+)?shift\b|\bwhen\s+(?:do|am)\s+i\s+work\s+next\b/i.test(message)) {
     return "next-shift";
+  }
+  if (
+    /\bnext\s+(?:work\s+)?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i.test(message) ||
+    /\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b/.test(message) ||
+    /\b(?:on\s+)?(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:,?\s+20\d{2})?\b/i.test(message)
+  ) {
+    return "date";
   }
   if (/\bdays?\s+off\b|\bam\s+i\s+off\b/i.test(message)) return "days-off";
   if (/\bthis\s+week\b/i.test(message)) return "this-week";
@@ -301,11 +364,14 @@ export async function getWorkSchedule(
   const upcoming = activeEvents.filter((event) => event.start >= now);
   const requestType = getRequestType(message);
   const todayKey = dateKey(now, calendar.timeZone);
+  const requestedDateKey = getRequestedDateKey(message, now, calendar.timeZone);
   let selected: ParsedCalendarEvent[];
   let daysOff: string[] = [];
 
   if (requestType === "next-shift") {
     selected = upcoming.slice(0, 1);
+  } else if (requestType === "date" && requestedDateKey) {
+    selected = upcoming.filter((event) => dateKey(event.start, calendar.timeZone) === requestedDateKey);
   } else if (requestType === "this-week") {
     const currentWeekday = new Intl.DateTimeFormat("en-US", {
       timeZone: calendar.timeZone,
