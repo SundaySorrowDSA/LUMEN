@@ -2,3 +2,4 @@
 - [Bing RSS relevance](web-search-relevance.md) — instruction-heavy entity queries can return unrelated pages; require subject validation before model context.
 - [Calendar subscription transport](calendar-subscription-transport.md) — webcal subscription URLs need in-memory HTTPS conversion before server-side fetch.
 - [Kindroid schedule clock](kindroid-schedule-clock.md) — Kindroid may override calendar weekdays with its internal clock; validate next-shift wording against tool facts.
+- [iPhone composer layout](iphone-composer-layout.md) — the mobile chat composer is verified with the real iOS keyboard; preserve its viewport, safe-area, and scroll behavior.

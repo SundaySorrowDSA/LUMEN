@@ -1,0 +1,30 @@
+The mobile composer fix is now verified on a real iPhone with the iOS keyboard open. Preserve that layout exactly. Do not modify its positioning, sizing behavior, safe-area handling, scrolling behavior, Send button placement, or keyboard handling.
+
+Now perform a visual-theme-only redesign of Lumen.
+
+Replace the current cream/beige palette with a sophisticated near-black / charcoal interface with warm metallic-gold accents and soft off-white text.
+
+Design direction:
+
+* Primary background: near-black / deep charcoal
+* Secondary surfaces/cards: subtly lighter charcoal
+* Primary text: warm off-white
+* Secondary text: muted neutral gray
+* Accent: restrained warm metallic gold
+* Gold should identify active states, important controls, focus states, and selected elements—not cover the entire interface
+* Preserve distinct green/red colors where they communicate success/error/status
+* Borders should be subtle and dark, with restrained gold highlighting where useful
+* Reduce the “cream SaaS dashboard” appearance
+* Avoid excessive rounded cards and pill-shaped elements
+* Maintain excellent readability and accessibility/contrast
+* Keep the interface sophisticated, minimal, immersive, and slightly futuristic
+
+The desired feeling is a premium personal-AI command center, with conversation as the focus. It should feel appropriate for Ren/Lumen rather than like a generic productivity dashboard.
+
+Apply the theme consistently across Workspace/chat, Memory, Connections, Context, Chats, navigation, composer, status indicators, and dialogs/modals so there are no leftover beige screens.
+
+Do not change any functionality. Do not modify backend code, APIs, Kindroid integration, calendar behavior, memory behavior, routing, credentials, model configuration, or data. Do not remove any controls.
+
+Test the themed UI at the same mobile viewport sizes already verified. Confirm that the existing mobile composer still passes its keyboard/reduced-height tests.
+
+Do not publish. Show me the completed preview first.
