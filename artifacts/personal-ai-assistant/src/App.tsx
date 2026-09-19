@@ -219,7 +219,40 @@ const formatDate = (value?: string) => {
   return sameDay ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
-function deriveRenMood(assistantResponse?: string) {
+const LAST_INTERACTION_STORAGE_KEY = 'lumen:lastInteractionAt';
+
+type MoodTimingContext = {
+  lastInteractionAt: string | null;
+  elapsedMs: number | null;
+};
+
+function readStoredLastInteractionAt() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = window.localStorage.getItem(LAST_INTERACTION_STORAGE_KEY);
+    return stored && Number.isFinite(Date.parse(stored)) ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistLastInteractionAt(value: string) {
+  try {
+    window.localStorage.setItem(LAST_INTERACTION_STORAGE_KEY, value);
+  } catch {
+    // The persisted conversation timestamp remains the fallback when storage is unavailable.
+  }
+}
+
+function calculateElapsedMs(lastInteractionAt: string | null, now: number) {
+  if (!lastInteractionAt) return null;
+  const timestamp = Date.parse(lastInteractionAt);
+  return Number.isFinite(timestamp) ? Math.max(0, now - timestamp) : null;
+}
+
+function deriveRenMood(assistantResponse?: string, timing?: MoodTimingContext) {
+  // Timing is intentionally available to mood logic without changing mood behavior yet.
+  void timing;
   if (!assistantResponse?.trim()) return { symbol: '💭', label: 'Curious' };
 
   const context = assistantResponse.toLowerCase();
@@ -344,7 +377,15 @@ function Workspace() {
   const active = detailQuery.data;
   const displayedMessages = active?.messages ?? [];
   const latestAssistantMessage = [...displayedMessages].reverse().find((message) => message.role === 'assistant');
-  const [renMood, setRenMood] = useState(() => deriveRenMood());
+  const latestUserMessage = [...displayedMessages].reverse().find((message) => message.role === 'user');
+  const [lastInteractionAt, setLastInteractionAt] = useState<string | null>(readStoredLastInteractionAt);
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  const elapsedSinceLastInteractionMs = calculateElapsedMs(lastInteractionAt, clockNow);
+  const moodTiming = { lastInteractionAt, elapsedMs: elapsedSinceLastInteractionMs };
+  const [renMood, setRenMood] = useState(() => deriveRenMood(undefined, {
+    lastInteractionAt: readStoredLastInteractionAt(),
+    elapsedMs: calculateElapsedMs(readStoredLastInteractionAt(), Date.now()),
+  }));
   const displayedRenMood = sendMessage.isPending ? { symbol: '✦', label: 'Thinking' } : renMood;
 
   useEffect(() => {
@@ -357,8 +398,28 @@ function Workspace() {
   }, [displayedMessages.length, sendMessage.isPending]);
 
   useEffect(() => {
-    setRenMood(deriveRenMood(latestAssistantMessage?.content));
-  }, [latestAssistantMessage?.id, latestAssistantMessage?.content]);
+    const interval = window.setInterval(() => setClockNow(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const candidate = latestUserMessage?.createdAt;
+    if (!candidate || !Number.isFinite(Date.parse(candidate))) return;
+    setLastInteractionAt((current) => {
+      if (current && Date.parse(current) >= Date.parse(candidate)) return current;
+      persistLastInteractionAt(candidate);
+      return candidate;
+    });
+  }, [latestUserMessage?.createdAt]);
+
+  useEffect(() => {
+    setRenMood(deriveRenMood(latestAssistantMessage?.content, moodTiming));
+  }, [
+    latestAssistantMessage?.id,
+    latestAssistantMessage?.content,
+    lastInteractionAt,
+    elapsedSinceLastInteractionMs,
+  ]);
 
   const submitNew = () => {
     const title = newTitle.trim() || 'A new line of thought';
@@ -378,7 +439,14 @@ function Workspace() {
     setComposer('');
     sendMessage.mutate({ id: selected, data: { content } }, {
       onSuccess: (pair) => {
-        setRenMood(deriveRenMood(pair.assistantMessage.content));
+        const interactionTimestamp = pair.userMessage.createdAt;
+        persistLastInteractionAt(interactionTimestamp);
+        setLastInteractionAt(interactionTimestamp);
+        setClockNow(Date.now());
+        setRenMood(deriveRenMood(pair.assistantMessage.content, {
+          lastInteractionAt: interactionTimestamp,
+          elapsedMs: calculateElapsedMs(interactionTimestamp, Date.now()),
+        }));
         qc.setQueryData(getGetAssistantConversationQueryKey(selected), (old: typeof active) => old ? { ...old, messages: [...old.messages, pair.userMessage, pair.assistantMessage] } : old);
         qc.invalidateQueries({ queryKey: getListAssistantConversationsQueryKey() });
         qc.invalidateQueries({ queryKey: getGetAssistantOverviewQueryKey() });
@@ -400,7 +468,7 @@ function Workspace() {
          <button onClick={() => setMobilePanel(null)} className="m-3 flex items-center justify-center gap-2 rounded-lg border border-border py-2 text-xs text-muted-foreground lg:hidden" aria-label="Close conversations panel" data-testid="button-close-conversation-panel"><X size={14} /> Close</button>
       </section>
         <main className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background lg:min-h-[calc(100dvh-64px)]">
-         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-8"><div className="min-w-0 flex-1"><div role="status" aria-live="polite" aria-atomic="true" title={active?.title ?? 'Ren status'} className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/[.06] px-2.5 py-1.5 text-xs text-foreground shadow-sm" data-testid="ren-mood-status"><span aria-hidden="true" className="text-primary">{displayedRenMood.symbol}</span><span className="font-medium text-primary">Ren</span><span className="text-muted-foreground/50">·</span><span className="truncate text-muted-foreground">{displayedRenMood.label}</span></div><p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[.16em] text-muted-foreground">{active ? `${displayedMessages.length} messages · private thread` : 'No thread selected'}</p></div><div className="flex shrink-0 gap-2 lg:hidden"><button onClick={() => setMobilePanel('list')} aria-label="Open conversations" title="Open conversations" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground" data-testid="button-open-conversation-panel"><Archive size={15} /><span>Chats</span></button><button onClick={() => setMobilePanel('context')} aria-label="Open context and capabilities" title="Open context and capabilities" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground" data-testid="button-open-context-panel"><Activity size={15} /><span className="min-[360px]:hidden">Info</span><span className="hidden min-[360px]:inline">Context</span></button></div>{active && <button onClick={() => { if (confirm('Delete this conversation?')) deleteConversation.mutate({ id: active.id }, { onSuccess: () => { setSelectedId(null); qc.invalidateQueries({ queryKey: getListAssistantConversationsQueryKey() }); qc.invalidateQueries({ queryKey: getGetAssistantOverviewQueryKey() }); } }); }} aria-label="Delete conversation" title="Delete conversation" className="hidden rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive sm:block" data-testid="button-delete-conversation"><Trash2 size={15} /></button>}</div>
+         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-8"><div className="min-w-0 flex-1"><div role="status" aria-live="polite" aria-atomic="true" title={active?.title ?? 'Ren status'} className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/[.06] px-2.5 py-1.5 text-xs text-foreground shadow-sm" data-testid="ren-mood-status" data-last-interaction-at={lastInteractionAt ?? ''} data-elapsed-ms={elapsedSinceLastInteractionMs ?? ''}><span aria-hidden="true" className="text-primary">{displayedRenMood.symbol}</span><span className="font-medium text-primary">Ren</span><span className="text-muted-foreground/50">·</span><span className="truncate text-muted-foreground">{displayedRenMood.label}</span></div><p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[.16em] text-muted-foreground">{active ? `${displayedMessages.length} messages · private thread` : 'No thread selected'}</p></div><div className="flex shrink-0 gap-2 lg:hidden"><button onClick={() => setMobilePanel('list')} aria-label="Open conversations" title="Open conversations" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground" data-testid="button-open-conversation-panel"><Archive size={15} /><span>Chats</span></button><button onClick={() => setMobilePanel('context')} aria-label="Open context and capabilities" title="Open context and capabilities" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground" data-testid="button-open-context-panel"><Activity size={15} /><span className="min-[360px]:hidden">Info</span><span className="hidden min-[360px]:inline">Context</span></button></div>{active && <button onClick={() => { if (confirm('Delete this conversation?')) deleteConversation.mutate({ id: active.id }, { onSuccess: () => { setSelectedId(null); qc.invalidateQueries({ queryKey: getListAssistantConversationsQueryKey() }); qc.invalidateQueries({ queryKey: getGetAssistantOverviewQueryKey() }); } }); }} aria-label="Delete conversation" title="Delete conversation" className="hidden rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive sm:block" data-testid="button-delete-conversation"><Trash2 size={15} /></button>}</div>
          <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 sm:px-8 lg:px-14">
           {!selected ? <div className="flex h-full min-h-[420px] flex-col items-center justify-center text-center"><div className="mb-5 flex h-16 w-16 items-center justify-center rounded-lg border border-accent/40 bg-accent/10 text-primary"><Sparkles size={25} strokeWidth={1.4} /></div><h2 className="font-serif text-3xl">A clear place to begin.</h2><p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">Choose a thread or open a new one. Lumen is here to think alongside you.</p><button onClick={() => setShowNew(true)} className="mt-6 flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm text-primary-foreground transition-transform hover:-translate-y-0.5" data-testid="button-empty-new-conversation"><Plus size={15} /> Start a thread</button></div> : detailQuery.isLoading ? <div className="mx-auto max-w-2xl pt-8"><LoadingLines count={7} /></div> : detailQuery.isError ? <div className="mx-auto mt-10 max-w-sm rounded-lg border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="text-sm font-medium text-destructive">This thread could not be opened.</p><button onClick={() => detailQuery.refetch()} className="mt-3 text-xs underline" data-testid="button-retry-conversation">Try again</button></div> : displayedMessages.length === 0 ? <div className="mx-auto flex min-h-[400px] max-w-xl flex-col items-center justify-center text-center"><div className="mb-5 font-mono text-[10px] uppercase tracking-[.2em] text-accent">New thread</div><h2 className="font-serif text-4xl">What should we hold today?</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">Ask for a considered answer, a web search, or a small action. You stay in control.</p><div className="mt-8 grid grid-cols-1 gap-2 text-left sm:grid-cols-3"><button onClick={() => setComposer('Help me make sense of something I am working through')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-clarify">Make sense of something</button><button onClick={() => setComposer('Research this topic and bring me the useful details')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-research">Research a topic</button><button onClick={() => setComposer('Help me plan the next steps for a project')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-plan">Plan next steps</button></div></div> : <div className="mx-auto max-w-2xl space-y-8">{displayedMessages.map((message) => <div key={message.id} className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`} data-testid={`message-${message.id}`}><div className={`max-w-[88%] ${message.role === 'user' ? 'rounded-lg rounded-br-md bg-primary px-4 py-3 text-primary-foreground' : 'pt-1'}`}><div className={`whitespace-pre-wrap text-[14px] leading-7 ${message.role === 'assistant' ? 'text-foreground/85' : ''}`}>{message.content}</div><div className={`mt-2 font-mono text-[9px] uppercase tracking-[.12em] ${message.role === 'user' ? 'text-primary-foreground/55' : 'text-muted-foreground'}`}>{message.role === 'assistant' ? `${message.model ?? overview?.model ?? 'Lumen'} · ${formatDate(message.createdAt)}` : formatDate(message.createdAt)}</div></div></div>)}{sendMessage.isPending && <div className="flex gap-4"><div className="flex items-center gap-2 pt-1 text-muted-foreground"><span className="flex gap-1"><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:120ms]" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:240ms]" /></span><span className="font-mono text-[10px] uppercase tracking-widest">Thinking</span></div></div>}</div>}
         </div>
