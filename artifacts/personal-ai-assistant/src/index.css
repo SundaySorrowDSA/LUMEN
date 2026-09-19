@@ -69,6 +69,8 @@
 
 /* LIGHT MODE */
 :root {
+  --app-viewport-height: 100dvh;
+  --mobile-nav-height: calc(4.25rem + env(safe-area-inset-bottom));
   --button-outline: rgba(0, 0, 0, 0.1);
   --badge-outline: rgba(0, 0, 0, 0.05);
 
@@ -277,6 +279,10 @@ html {
 
 body {
   min-width: 320px;
+}
+
+#root {
+  min-height: var(--app-viewport-height);
 }
 
 button, a, textarea, input, select {
