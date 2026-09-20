@@ -99,7 +99,7 @@ const definitions: ProviderDefinition[] = [
     defaultModel: "gpt-5.6-terra",
     credentialSecret: "OPENAI_API_KEY",
     credentialEnv: "OPENAI_API_KEY",
-    baseUrlEnv: "OPENAI_API_BASE_URL",
+    baseUrlEnv: null,
     modelEnv: "OPENAI_MODEL",
     capabilities: ["conversation", "vision", "tools"],
     statusWhenConfigured: "ready",
@@ -172,6 +172,7 @@ export type ProviderFetch = (
     method: "POST";
     headers: Record<string, string>;
     body: string;
+    signal?: AbortSignal;
   },
 ) => Promise<ProviderFetchResponse>;
 
@@ -179,6 +180,16 @@ export type KindroidProviderOptions = {
   apiKey: string;
   aiId: string;
   fetch: ProviderFetch;
+};
+
+export type OpenAIProviderOptions = {
+  apiKey: string;
+  baseUrl?: string;
+  model?: string;
+  fetch: ProviderFetch;
+  timeoutMs?: number;
+  maxInputChars?: number;
+  maxOutputTokens?: number;
 };
 
 function redactKindroidError(value: string, apiKey: string, aiId: string): string {
@@ -238,6 +249,154 @@ export function createKindroidProvider(options: KindroidProviderOptions): ModelP
         providerId: "kindroid",
         model: descriptor.model,
         content,
+        metadata: { mode: "provider", routedBy: "provider-router" },
+      };
+    },
+  };
+}
+
+function redactOpenAIError(value: string, apiKey: string): string {
+  return value
+    .replaceAll(apiKey, "[redacted]")
+    .replace(/https?:\/\/\S+/g, "[redacted-url]")
+    .trim()
+    .slice(0, 240);
+}
+
+function extractOpenAIText(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const response = payload as {
+    output_text?: unknown;
+    output?: Array<{
+      type?: unknown;
+      content?: Array<{ type?: unknown; text?: unknown }>;
+    }>;
+  };
+  if (typeof response.output_text === "string" && response.output_text.trim()) {
+    return response.output_text.trim();
+  }
+  return (response.output ?? [])
+    .flatMap((item) => item.content ?? [])
+    .filter((item) => item.type === "output_text" && typeof item.text === "string")
+    .map((item) => item.text as string)
+    .join("\n")
+    .trim();
+}
+
+function boundMessages(messages: ModelMessage[], maxInputChars: number): ModelMessage[] {
+  const bounded: ModelMessage[] = [];
+  let remaining = maxInputChars;
+  for (const message of messages.slice(-8)) {
+    if (remaining <= 0) break;
+    const content = message.content.slice(0, remaining);
+    if (content) {
+      bounded.push({ ...message, content });
+      remaining -= content.length;
+    }
+  }
+  return bounded;
+}
+
+async function fetchWithTimeout(
+  fetcher: ProviderFetch,
+  url: string,
+  init: {
+    method: "POST";
+    headers: Record<string, string>;
+    body: string;
+  },
+  timeoutMs: number,
+): Promise<ProviderFetchResponse> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      fetcher(url, { ...init, signal: controller.signal }),
+      new Promise<ProviderFetchResponse>((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`OpenAI request timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+export function createOpenAIProvider(options: OpenAIProviderOptions): ModelProvider {
+  const model = options.model?.trim() || "gpt-5.6-terra";
+  const descriptor = getProviderDescriptor("openai", {
+    OPENAI_API_KEY: options.apiKey,
+    OPENAI_MODEL: model,
+  });
+  if (!descriptor) throw new Error("OpenAI provider definition is missing");
+
+  const baseUrl = (options.baseUrl?.trim() || "https://api.openai.com/v1").replace(/\/+$/, "");
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const maxInputChars = options.maxInputChars ?? 8_000;
+  const maxOutputTokens = options.maxOutputTokens ?? 400;
+
+  return {
+    descriptor,
+    async complete(request) {
+      const messages = boundMessages(request.messages, maxInputChars);
+      if (!messages.some((message) => message.role === "user" && message.content.trim())) {
+        throw new Error("OpenAI consultation requires a non-empty user message");
+      }
+
+      let response: ProviderFetchResponse;
+      try {
+        response = await fetchWithTimeout(
+          options.fetch,
+          `${baseUrl}/responses`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${options.apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              store: false,
+              max_output_tokens: maxOutputTokens,
+              input: messages,
+            }),
+          },
+          timeoutMs,
+        );
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Unknown network error";
+        throw new Error(`OpenAI consultation failed before a response was received: ${redactOpenAIError(detail, options.apiKey)}`);
+      }
+
+      const content = await response.text();
+      if (!response.ok) {
+        let detail = content;
+        try {
+          const payload = JSON.parse(content) as { error?: { message?: string } };
+          detail = payload.error?.message ?? content;
+        } catch {
+          // Preserve a bounded plain-text error when the provider does not return JSON.
+        }
+        throw new Error(
+          `OpenAI API returned ${response.status} ${response.statusText}${detail ? `: ${redactOpenAIError(detail, options.apiKey)}` : ""}`,
+        );
+      }
+
+      let payload: unknown;
+      try {
+        payload = JSON.parse(content);
+      } catch {
+        throw new Error("OpenAI API returned invalid JSON");
+      }
+      const answer = extractOpenAIText(payload);
+      if (!answer) throw new Error("OpenAI API returned an empty response");
+
+      return {
+        providerId: "openai",
+        model: descriptor.model,
+        content: answer.slice(0, maxOutputTokens * 20),
         metadata: { mode: "provider", routedBy: "provider-router" },
       };
     },
