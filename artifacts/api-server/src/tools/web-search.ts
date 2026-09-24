@@ -12,7 +12,7 @@ export type WebSearchResponse = {
   results: WebSearchResult[];
 };
 
-type SearchSubject = {
+export type SearchSubject = {
   terms: string[];
   searchPhrase: string;
   authoritativeHosts: string[];
@@ -23,7 +23,10 @@ const CURRENT_INFORMATION_PATTERN =
   /\b(latest|current|currently|today|tonight|tomorrow|yesterday|recent|recently|right now|this week|this month|this year|news|weather|forecast|score|scores|price|prices|stock|market|election|president|prime minister|ceo|release date|version|update|updated|online|internet|web search|search the web|look up)\b/i;
 
 const SEARCH_STOP_WORDS = new Set([
+  "are",
   "about",
+  "in",
+  "thoughts",
   "current",
   "find",
   "for",
@@ -40,7 +43,11 @@ const SEARCH_STOP_WORDS = new Set([
   "today",
   "web",
   "what",
+  "your",
 ]);
+
+const CONVERSATIONAL_SEARCH_PREFIX =
+  /^(?:(?:what\s+(?:are\s+your\s+thoughts|do\s+you\s+think)\s+(?:about|on))|(?:can\s+you\s+)?tell\s+me\s+about)\s+/i;
 
 const KNOWN_SUBJECTS: Array<{ pattern: RegExp; subject: SearchSubject }> = [
   {
@@ -60,6 +67,7 @@ export function requiresCurrentWebInformation(message: string): boolean {
 
 export function normalizeWebSearchQuery(message: string): string {
   const normalized = message
+    .replace(CONVERSATIONAL_SEARCH_PREFIX, "")
     .replace(
       /\b(?:using|with|from)\s+(?:the\s+)?(?:current|latest|live|up-to-date)\s+(?:internet|web|online)\s+(?:information|sources?|results?|data)?[:,]?\s*/gi,
       "",
@@ -69,6 +77,7 @@ export function normalizeWebSearchQuery(message: string): string {
     .replace(/\b(?:include|provide)\s+(?:the\s+)?source(?:s| url)?[\s\S]*$/i, "")
     .replace(/\b(?:and\s+)?cite\s+(?:the\s+)?source(?:s| url)?[\s\S]*$/i, "")
     .replace(/\s+and\s+(?:tell|show|summarize|explain|report)\s+me\b[\s\S]*$/i, "")
+    .replace(/\btoday(?:['’]s)?\s+/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -95,13 +104,13 @@ function readTag(item: string, tag: string): string {
   return match ? decodeXml(match[1]) : "";
 }
 
-function extractSearchSubject(query: string): SearchSubject {
+export function extractSearchSubject(query: string): SearchSubject {
   const knownSubject = KNOWN_SUBJECTS.find(({ pattern }) => pattern.test(query));
   if (knownSubject) return knownSubject.subject;
 
   const explicitSubject =
     query.match(/\b(?:about|regarding)\s+(.+)$/i)?.[1] ??
-    query.replace(/\b(?:latest|current|recent|today|news|weather|forecast|price|score|update)\b/gi, " ");
+    query.replace(/\b(?:latest|current|recent|today(?:['’]s)?|news|weather|forecast|price|score|update)\b/gi, " ");
   const terms = [...new Set(
     explicitSubject
       .toLowerCase()
@@ -121,7 +130,7 @@ function hostMatches(hostname: string, expectedHost: string): boolean {
   return hostname === expectedHost || hostname.endsWith(`.${expectedHost}`);
 }
 
-function scoreResult(result: WebSearchResult, subject: SearchSubject): number | null {
+export function scoreResult(result: WebSearchResult, subject: SearchSubject): number | null {
   let hostname: string;
   try {
     hostname = new URL(result.url).hostname.toLowerCase();
@@ -149,6 +158,36 @@ function scoreResult(result: WebSearchResult, subject: SearchSubject): number | 
     score += 5;
   }
   return score;
+}
+
+export function buildWebSearchPlan(query: string) {
+  const normalizedQuery = normalizeWebSearchQuery(query);
+  const subject = extractSearchSubject(normalizedQuery);
+  const searchQueries = [...new Set([
+    ...subject.authoritativeHosts.map(
+      (host) => `site:${host} ${subject.searchPhrase} ${normalizedQuery}`,
+    ),
+    normalizedQuery,
+    subject.searchPhrase ? `${subject.searchPhrase} ${normalizedQuery}` : normalizedQuery,
+  ])];
+  return { normalizedQuery, subject, searchQueries };
+}
+
+export function rankRelevantSearchResults(
+  results: WebSearchResult[],
+  subject: SearchSubject,
+) {
+  const rankedResults = new Map<string, { result: WebSearchResult; score: number }>();
+  for (const result of results) {
+    const score = scoreResult(result, subject);
+    if (score === null) continue;
+    const existing = rankedResults.get(result.url);
+    if (!existing || score > existing.score) rankedResults.set(result.url, { result, score });
+  }
+  return [...rankedResults.values()]
+    .sort((left, right) => right.score - left.score)
+    .map(({ result }) => result)
+    .slice(0, 5);
 }
 
 async function fetchBingRss(query: string): Promise<WebSearchResult[]> {
@@ -181,31 +220,11 @@ async function fetchBingRss(query: string): Promise<WebSearchResult[]> {
 }
 
 export async function searchWeb(query: string): Promise<WebSearchResponse> {
-  const normalizedQuery = normalizeWebSearchQuery(query);
+  const { normalizedQuery, subject, searchQueries } = buildWebSearchPlan(query);
   if (!normalizedQuery) throw new Error("Web search requires a non-empty query");
 
-  const subject = extractSearchSubject(normalizedQuery);
-  const searchQueries = [
-    ...subject.authoritativeHosts.map(
-      (host) => `site:${host} ${subject.searchPhrase} ${normalizedQuery}`,
-    ),
-    normalizedQuery,
-    subject.searchPhrase ? `${subject.searchPhrase} ${normalizedQuery}` : normalizedQuery,
-  ];
-  const batches = await Promise.all([...new Set(searchQueries)].map(fetchBingRss));
-  const rankedResults = new Map<string, { result: WebSearchResult; score: number }>();
-
-  for (const result of batches.flat()) {
-    const score = scoreResult(result, subject);
-    if (score === null) continue;
-    const existing = rankedResults.get(result.url);
-    if (!existing || score > existing.score) rankedResults.set(result.url, { result, score });
-  }
-
-  const results = [...rankedResults.values()]
-    .sort((left, right) => right.score - left.score)
-    .map(({ result }) => result)
-    .slice(0, 5);
+  const batches = await Promise.all(searchQueries.map(fetchBingRss));
+  const results = rankRelevantSearchResults(batches.flat(), subject);
 
   if (results.length === 0) {
     throw new Error("Web search returned no results relevant to the requested subject");
@@ -217,6 +236,34 @@ export async function searchWeb(query: string): Promise<WebSearchResponse> {
     retrievedAt: new Date().toISOString(),
     results,
   };
+}
+
+export function buildWebSearchUnavailableContext(message: string): string {
+  return `[Lumen live web search unavailable]
+Current information could not be retrieved or verified. Do not present stored knowledge or assumptions as current. Clearly tell the user that current information is unavailable, and limit the response to non-current general context if that would still be useful.
+
+[User request]
+${message}`;
+}
+
+export async function resolveOptionalWebSearch(
+  message: string,
+  search: (query: string) => Promise<WebSearchResponse> = searchWeb,
+) {
+  try {
+    const webSearch = await search(message);
+    return {
+      webSearch,
+      providerContent: buildWebSearchContext(message, webSearch),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      webSearch: null,
+      providerContent: buildWebSearchUnavailableContext(message),
+      error: error instanceof Error ? error : new Error(String(error)),
+    };
+  }
 }
 
 export function buildWebSearchContext(message: string, search: WebSearchResponse): string {

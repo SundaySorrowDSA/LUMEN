@@ -30,9 +30,8 @@ import {
   type ProviderId,
 } from "@workspace/assistant-providers";
 import {
-  buildWebSearchContext,
   requiresCurrentWebInformation,
-  searchWeb,
+  resolveOptionalWebSearch,
 } from "../tools/web-search.js";
 import {
   buildCalculationContext,
@@ -446,12 +445,17 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     !workScheduleRequested &&
     !calculation &&
     requiresCurrentWebInformation(body.content);
-  const webSearch = webSearchRequested
-    ? await searchWeb(body.content)
-    : null;
-  let providerContent = webSearch
-    ? buildWebSearchContext(body.content, webSearch)
-    : body.content;
+  const webSearchOutcome = webSearchRequested
+    ? await resolveOptionalWebSearch(body.content)
+    : { webSearch: null, providerContent: body.content, error: null };
+  if (webSearchOutcome.error) {
+    req.log.warn(
+      { err: webSearchOutcome.error },
+      "Optional web search failed; continuing with explicit unavailable-current-information context",
+    );
+  }
+  const webSearch = webSearchOutcome.webSearch;
+  let providerContent = webSearchOutcome.providerContent;
   if (workSchedule) {
     providerContent = buildWorkScheduleContext(providerContent, workSchedule);
   }
