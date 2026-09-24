@@ -17,6 +17,8 @@ import {
 const diagnosedPrompt = "What are your thoughts on today’s current events in America";
 const recentDate = new Date(Date.now() - 60 * 60 * 1000).toUTCString();
 const staleDate = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toUTCString();
+const rssItem = (result: WebSearchResult) =>
+  `<item><title>${result.title}</title><link>${result.url}</link><description>${result.snippet}</description>${result.publishedAt ? `<pubDate>${result.publishedAt}</pubDate>` : ""}</item>`;
 
 test("excludes conversational framing from the search subject", () => {
   const normalized = normalizeWebSearchQuery(
@@ -301,7 +303,9 @@ test("broad news searches news RSS only when web RSS has no usable article", asy
       calls.push({ query, surface: surface ?? "web" });
       return surface === "news" && query.includes("news today") ? [story] : indexes;
     };
-  const result = await searchWeb(diagnosedPrompt, undefined, fetchResults);
+  const result = await searchWeb(diagnosedPrompt, undefined, fetchResults, async () => {
+    assert.fail("BBC fallback must not run when Bing News found a story");
+  });
   assert.deepEqual(calls, [
     { query: "United States news today", surface: "web" },
     { query: "United States headlines today", surface: "web" },
@@ -325,9 +329,101 @@ test("an initial direct dated story avoids the extra searches", async () => {
       calls.push(surface ?? "web");
       return [story];
     };
-  const result = await searchWeb(diagnosedPrompt, undefined, fetchResults);
+  const result = await searchWeb(diagnosedPrompt, undefined, fetchResults, async () => {
+    assert.fail("BBC fallback must not run when the web search found a story");
+  });
   assert.deepEqual(calls, ["web", "web"]);
   assert.deepEqual(result.results, [story]);
+});
+
+test("broad U.S. news falls back to the first 20 BBC items and retains only validated direct stories", async () => {
+  const story: WebSearchResult = {
+    title: "U.S. Senate approves a funding measure",
+    url: "https://www.bbc.com/news/articles/c12345678",
+    snippet: "Lawmakers voted on the measure after months of debate in Washington.",
+    publishedAt: recentDate,
+  };
+  const rejected: WebSearchResult = {
+    ...story,
+    url: "https://www.bbc.com/news/world/us_and_canada",
+    publishedAt: null,
+  };
+  const beyondLimit = { ...story, url: "https://www.bbc.com/news/articles/c99999999" };
+  const xml = `<rss><channel>${rssItem(story)}${Array.from({ length: 19 }, () => rssItem(rejected)).join("")}${rssItem(beyondLimit)}</channel></rss>`;
+  const calls: string[] = [];
+  let bbcCalls = 0;
+  const result = await searchWeb(
+    diagnosedPrompt,
+    undefined,
+    async (_query, _subject, _traceId, surface) => {
+      calls.push(surface ?? "web");
+      return [];
+    },
+    async (url) => {
+      bbcCalls++;
+      assert.equal(url, "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml");
+      return new Response(xml, { status: 200 });
+    },
+  );
+  assert.deepEqual(calls, ["web", "web", "news", "news"]);
+  assert.equal(bbcCalls, 1);
+  assert.deepEqual(result.results, [story]);
+});
+
+test("broad U.S. news keeps insufficient-evidence behavior when BBC has no valid stories", async () => {
+  const index: WebSearchResult = {
+    title: "U.S. Senate passes a funding bill",
+    url: "https://www.bbc.com/news/world/us_and_canada",
+    snippet: "Lawmakers voted on the measure after months of debate in Washington.",
+    publishedAt: recentDate,
+  };
+  const undated = {
+    ...index,
+    url: "https://www.bbc.com/news/articles/c12345678",
+    publishedAt: null,
+  };
+  let bbcCalls = 0;
+  const outcome = await resolveOptionalWebSearch(
+    diagnosedPrompt,
+    (query, diagnostics) => searchWeb(
+      query,
+      diagnostics,
+      async () => [],
+      async () => {
+        bbcCalls++;
+        return new Response(`<rss><channel>${rssItem(index)}${rssItem(undated)}</channel></rss>`);
+      },
+    ),
+  );
+  assert.equal(bbcCalls, 1);
+  assert.equal(outcome.webSearch, null);
+  assert.ok(outcome.error instanceof InsufficientNewsEvidenceError);
+  assert.match(outcome.providerContent, /live web search found insufficient evidence/);
+});
+
+test("an unavailable BBC feed also retains the insufficient-evidence fallback", async () => {
+  await assert.rejects(
+    searchWeb(
+      diagnosedPrompt,
+      undefined,
+      async () => [],
+      async () => new Response("", { status: 503 }),
+    ),
+    InsufficientNewsEvidenceError,
+  );
+});
+
+test("BBC fallback does not run for broad non-U.S. news or topical U.S. searches", async () => {
+  let bbcCalls = 0;
+  for (const prompt of ["What are the latest headlines from Canada?", "latest news about US elections"]) {
+    await assert.rejects(
+      searchWeb(prompt, undefined, async () => [], async () => {
+        bbcCalls++;
+        return new Response("<rss><channel></channel></rss>");
+      }),
+    );
+  }
+  assert.equal(bbcCalls, 0);
 });
 
 test("only indexes and undated stories produce honest insufficient-evidence context", async () => {
@@ -350,7 +446,12 @@ test("only indexes and undated stories produce honest insufficient-evidence cont
       surface === "news" ? [undatedStory] : [index];
   const outcome = await resolveOptionalWebSearch(
     diagnosedPrompt,
-    (query, diagnostics) => searchWeb(query, diagnostics, fetchResults),
+    (query, diagnostics) => searchWeb(
+      query,
+      diagnostics,
+      fetchResults,
+      async () => new Response("<rss><channel></channel></rss>"),
+    ),
   );
   assert.equal(outcome.webSearch, null);
   assert.ok(outcome.error instanceof InsufficientNewsEvidenceError);

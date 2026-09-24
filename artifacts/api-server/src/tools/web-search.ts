@@ -91,6 +91,7 @@ const NEWS_ARTICLE_PATH =
 const EVERGREEN_HEADLINE =
   /\b(?:guide to|travel guide|visitor'?s guide|historic landmarks|things to do|tourist attractions|recipe)\b/i;
 const BROAD_CURRENT_EVENTS_CONTEXT_TERMS = ["news", "event", "report", "update"];
+const BBC_US_CANADA_RSS_URL = "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml";
 type SearchSurface = "web" | "news";
 
 export class InsufficientNewsEvidenceError extends Error {
@@ -473,18 +474,31 @@ function logBingAttemptFailure(
   );
 }
 
-export function parseBingRss(xml: string): WebSearchResult[] {
-  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
-    .map((match) => {
-      const item = match[1];
-      const title = readTag(item, "title");
-      const url = unwrapBingNewsLink(readTag(item, "link"));
-      const snippet = readTag(item, "description");
-      const publishedAt = readTag(item, "pubDate") || null;
-      if (!title || !snippet || !url) return null;
-      return { title, url, snippet, publishedAt };
-    })
-    .filter((result): result is WebSearchResult => Boolean(result));
+export function parseBingRss(xml: string, maxItems = Infinity): WebSearchResult[] {
+  const results: WebSearchResult[] = [];
+  let examined = 0;
+  for (const match of xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)) {
+    if (examined++ >= maxItems) break;
+    const item = match[1];
+    const title = readTag(item, "title");
+    const url = unwrapBingNewsLink(readTag(item, "link"));
+    const snippet = readTag(item, "description");
+    const publishedAt = readTag(item, "pubDate") || null;
+    if (title && snippet && url) results.push({ title, url, snippet, publishedAt });
+  }
+  return results;
+}
+
+async function fetchBbcUsCanadaRss(fetchRss: typeof fetch): Promise<WebSearchResult[]> {
+  const response = await fetchRss(BBC_US_CANADA_RSS_URL, {
+    headers: {
+      Accept: "application/rss+xml, application/xml, text/xml",
+      "User-Agent": "Lumen/1.0",
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`BBC RSS returned ${response.status} ${response.statusText}`);
+  return parseBingRss(await response.text(), 20);
 }
 
 async function fetchBingRss(
@@ -566,6 +580,7 @@ export async function searchWeb(
   query: string,
   diagnostics?: WebSearchDiagnostics,
   fetchResults: FetchSearchResults = fetchBingRss,
+  fetchBbcRss: typeof fetch = fetch,
 ): Promise<WebSearchResponse> {
   const { normalizedQuery, subject, searchQueries } = buildWebSearchPlan(query);
   if (!normalizedQuery) throw new Error("Web search requires a non-empty query");
@@ -595,6 +610,20 @@ export async function searchWeb(
       ),
       subject,
     );
+  }
+
+  if (subject.broadNewsFreshness && subject.searchPhrase === "United States" && results.length === 0) {
+    try {
+      results = rankRelevantSearchResults(await fetchBbcUsCanadaRss(fetchBbcRss), subject);
+    } catch (error) {
+      logger.warn(
+        {
+          ...(diagnostics?.traceId ? { assistantTraceId: diagnostics.traceId } : {}),
+          errorType: errorType(error),
+        },
+        "BBC U.S. and Canada RSS fallback unavailable",
+      );
+    }
   }
 
   if (results.length === 0) {
