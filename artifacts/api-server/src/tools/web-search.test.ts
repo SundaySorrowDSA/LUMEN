@@ -5,9 +5,12 @@ import {
   extractSearchSubject,
   getRelevanceDiagnostics,
   normalizeWebSearchQuery,
+  parseBingRss,
   rankRelevantSearchResults,
   requiresCurrentWebInformation,
   resolveOptionalWebSearch,
+  searchWeb,
+  InsufficientNewsEvidenceError,
   type WebSearchResult,
 } from "./web-search.js";
 
@@ -96,7 +99,7 @@ test("accepts dated U.S. headlines across location spellings without mandatory c
   const relevant = ["America", "American", "US", "U.S.", "United States"].map(
     (location, index): WebSearchResult => ({
       title: `${location} Senate passes funding bill`,
-      url: `https://www.reuters.com/world/us/senate-vote-${index}/`,
+      url: `https://www.reuters.com/world/us/senate-passes-funding-${index}/`,
       snippet: "Lawmakers voted on the measure in Washington.",
       publishedAt: recentDate,
     }),
@@ -127,7 +130,7 @@ test("rejects unrelated America pages and stale or undated material presented as
   };
   const unrelatedForeignNews: WebSearchResult = {
     title: "Canada's parliament votes on a budget",
-    url: "https://www.reuters.com/world/canada/budget-vote/",
+    url: "https://www.reuters.com/world/canada/parliament-approves-budget/",
     snippet: "Lawmakers approved a national spending measure.",
     publishedAt: recentDate,
   };
@@ -172,13 +175,13 @@ test("reports parsed candidate counts and rejection categories without result te
   const results: WebSearchResult[] = [
     {
       title: "U.S. Senate passes funding bill",
-      url: "https://www.reuters.com/world/us/senate-vote/",
+      url: "https://www.reuters.com/world/us/senate-passes-funding/",
       snippet: "Lawmakers approved the measure in Washington.",
       publishedAt: recentDate,
     },
     {
       title: "Canada's parliament approves a budget",
-      url: "https://www.reuters.com/world/canada/budget-vote/",
+      url: "https://www.reuters.com/world/canada/parliament-approves-budget/",
       snippet: "Lawmakers voted on a spending measure.",
       publishedAt: recentDate,
     },
@@ -196,14 +199,14 @@ test("reports parsed candidate counts and rejection categories without result te
     },
     {
       title: "U.S. Senate votes today",
-      url: "https://www.reuters.com/world/us/old-vote/",
-      snippet: "Lawmakers cast their ballots.",
+      url: "https://www.reuters.com/world/us/old-senate-vote/",
+      snippet: "Lawmakers cast their ballots on the measure in Washington.",
       publishedAt: staleDate,
     },
     {
       title: "U.S. Senate votes today",
-      url: "https://www.reuters.com/world/us/undated-vote/",
-      snippet: "Lawmakers cast their ballots.",
+      url: "https://www.reuters.com/world/us/undated-senate-vote/",
+      snippet: "Lawmakers cast their ballots on the measure in Washington.",
       publishedAt: null,
     },
     {
@@ -225,6 +228,8 @@ test("reports parsed candidate counts and rejection categories without result te
       missingPublicationDate: 1,
       outsideFreshnessWindow: 1,
       evergreenContent: 1,
+      notDirectArticle: 1,
+      nonSpecificStoryText: 0,
     },
   });
 });
@@ -258,9 +263,99 @@ test("reports missing context terms independently from missing subject terms", (
         missingPublicationDate: 0,
         outsideFreshnessWindow: 0,
         evergreenContent: 0,
+        notDirectArticle: 0,
+        nonSpecificStoryText: 0,
       },
     },
   );
+});
+
+test("Bing News RSS links are unwrapped to direct article URLs without changing dates", () => {
+  const original = "https://www.reuters.com/world/us/senate-passes-funding-2026-09-24/";
+  const bingLink = `http://www.bing.com/news/apiclick.aspx?ref=FexRss&amp;url=${encodeURIComponent(original)}`;
+  const xml = `<rss><channel><item><title>U.S. Senate passes funding bill</title><link>${bingLink}</link><description>Lawmakers voted on the measure in Washington.</description><pubDate>${recentDate}</pubDate></item></channel></rss>`;
+  assert.deepEqual(parseBingRss(xml), [{
+    title: "U.S. Senate passes funding bill",
+    url: original,
+    snippet: "Lawmakers voted on the measure in Washington.",
+    publishedAt: recentDate,
+  }]);
+});
+
+test("broad news searches news RSS only when web RSS has no usable article", async () => {
+  const indexes: WebSearchResult[] = [{
+    title: "U.S. News: Latest news, breaking news, today's news stories",
+    url: "https://www.cbsnews.com/us/",
+    snippet: "Find the latest news, videos and other information about America.",
+    publishedAt: recentDate,
+  }];
+  const story: WebSearchResult = {
+    title: "U.S. Senate passes funding bill",
+    url: "https://apnews.com/article/us-senate-funding-measure",
+    snippet: "Lawmakers voted on the measure in Washington after months of debate.",
+    publishedAt: recentDate,
+  };
+  const calls: Array<{ query: string; surface: string }> = [];
+  const fetchResults: NonNullable<Parameters<typeof searchWeb>[2]> =
+    async (query, _subject, _traceId, surface) => {
+      calls.push({ query, surface: surface ?? "web" });
+      return surface === "news" && query.includes("news today") ? [story] : indexes;
+    };
+  const result = await searchWeb(diagnosedPrompt, undefined, fetchResults);
+  assert.deepEqual(calls, [
+    { query: "United States news today", surface: "web" },
+    { query: "United States headlines today", surface: "web" },
+    { query: "United States news today", surface: "news" },
+    { query: "United States headlines today", surface: "news" },
+  ]);
+  assert.deepEqual(result.results, [story]);
+  assert.ok(result.results.every((item) => item.url !== indexes[0].url));
+});
+
+test("an initial direct dated story avoids the extra searches", async () => {
+  const calls: string[] = [];
+  const story: WebSearchResult = {
+    title: "U.S. Senate passes funding bill",
+    url: "https://apnews.com/article/us-senate-funding-measure",
+    snippet: "Lawmakers voted on the measure in Washington after months of debate.",
+    publishedAt: recentDate,
+  };
+  const fetchResults: NonNullable<Parameters<typeof searchWeb>[2]> =
+    async (_query, _subject, _traceId, surface) => {
+      calls.push(surface ?? "web");
+      return [story];
+    };
+  const result = await searchWeb(diagnosedPrompt, undefined, fetchResults);
+  assert.deepEqual(calls, ["web", "web"]);
+  assert.deepEqual(result.results, [story]);
+});
+
+test("only indexes and undated stories produce honest insufficient-evidence context", async () => {
+  const index: WebSearchResult = {
+    title: "U.S. Senate passes funding bill",
+    url: "https://www.cbsnews.com/us/",
+    snippet: "Lawmakers voted on the measure in Washington after months of debate.",
+    publishedAt: recentDate,
+  };
+  const { subject } = buildWebSearchPlan(diagnosedPrompt);
+  assert.equal(getRelevanceDiagnostics([index], subject).rejectionCategories.notDirectArticle, 1);
+  const undatedStory: WebSearchResult = {
+    title: "U.S. Senate passes funding bill",
+    url: "https://apnews.com/article/us-senate-funding-measure",
+    snippet: "Lawmakers voted on the measure in Washington after months of debate.",
+    publishedAt: null,
+  };
+  const fetchResults: NonNullable<Parameters<typeof searchWeb>[2]> =
+    async (_query, _subject, _traceId, surface) =>
+      surface === "news" ? [undatedStory] : [index];
+  const outcome = await resolveOptionalWebSearch(
+    diagnosedPrompt,
+    (query, diagnostics) => searchWeb(query, diagnostics, fetchResults),
+  );
+  assert.equal(outcome.webSearch, null);
+  assert.ok(outcome.error instanceof InsufficientNewsEvidenceError);
+  assert.match(outcome.providerContent, /live web search found insufficient evidence/);
+  assert.match(outcome.providerContent, /Do not present those pages as current-event evidence/);
 });
 
 test("optional web-search failure falls through with provider content", async () => {

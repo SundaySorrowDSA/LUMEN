@@ -1,5 +1,5 @@
 - [Generated client typecheck](generated-client-typecheck.md) — the shared API client needs DOM iterable types for generated Headers.entries usage.
-- [Bing RSS relevance](web-search-relevance.md) — instruction-heavy entity queries can return unrelated pages; require subject validation before model context.
+- [Bing RSS relevance](web-search-relevance.md) — validate both subject and direct story evidence; dated news indexes are not dated articles.
 - [Calendar subscription transport](calendar-subscription-transport.md) — webcal subscription URLs need in-memory HTTPS conversion before server-side fetch.
 - [Kindroid schedule clock](kindroid-schedule-clock.md) — Kindroid may override calendar weekdays with its internal clock; validate next-shift wording against tool facts.
 - [iPhone composer layout](iphone-composer-layout.md) — the mobile chat composer is verified with the real iOS keyboard; preserve its viewport, safe-area, and scroll behavior.

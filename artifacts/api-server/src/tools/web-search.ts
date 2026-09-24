@@ -1,4 +1,9 @@
 import { logger } from "../lib/logger.js";
+import {
+  hasStorySpecificText,
+  isDirectArticleUrl,
+  unwrapBingNewsLink,
+} from "./news-articles.js";
 
 export type WebSearchResult = {
   title: string;
@@ -86,6 +91,14 @@ const NEWS_ARTICLE_PATH =
 const EVERGREEN_HEADLINE =
   /\b(?:guide to|travel guide|visitor'?s guide|historic landmarks|things to do|tourist attractions|recipe)\b/i;
 const BROAD_CURRENT_EVENTS_CONTEXT_TERMS = ["news", "event", "report", "update"];
+type SearchSurface = "web" | "news";
+
+export class InsufficientNewsEvidenceError extends Error {
+  constructor() {
+    super("Live search found no relevant dated news articles; indexes are insufficient evidence");
+    this.name = "InsufficientNewsEvidenceError";
+  }
+}
 
 const CONVERSATIONAL_SEARCH_PREFIX =
   /^(?:(?:what\s+(?:are\s+your\s+thoughts|do\s+you\s+think)\s+(?:about|on))|(?:can\s+you\s+)?tell\s+me\s+about)\s+/i;
@@ -240,7 +253,9 @@ type RelevanceRejectionCategory =
   | "missingNewsSourceContext"
   | "missingPublicationDate"
   | "outsideFreshnessWindow"
-  | "evergreenContent";
+  | "evergreenContent"
+  | "notDirectArticle"
+  | "nonSpecificStoryText";
 
 type RelevanceEvaluation = {
   score: number | null;
@@ -292,6 +307,8 @@ function evaluateSearchResult(
     const rejectionCategories: RelevanceRejectionCategory[] = [];
     if (!hasSubject) rejectionCategories.push("missingSubjectTerms");
     if (!newsSource) rejectionCategories.push("missingNewsSourceContext");
+    if (!isDirectArticleUrl(result.url)) rejectionCategories.push("notDirectArticle");
+    if (!hasStorySpecificText(result)) rejectionCategories.push("nonSpecificStoryText");
     if (EVERGREEN_HEADLINE.test(title)) rejectionCategories.push("evergreenContent");
     if (!hasPublicationDate) rejectionCategories.push("missingPublicationDate");
     else if (!withinFreshnessWindow) rejectionCategories.push("outsideFreshnessWindow");
@@ -338,6 +355,8 @@ export function getRelevanceDiagnostics(
     missingPublicationDate: 0,
     outsideFreshnessWindow: 0,
     evergreenContent: 0,
+    notDirectArticle: 0,
+    nonSpecificStoryText: 0,
   };
   let acceptedAfterRelevance = 0;
 
@@ -417,6 +436,7 @@ function errorType(error: unknown): string {
 function logBingAttemptFailure(
   searchPhrase: string,
   fields: {
+    searchSurface: SearchSurface;
     httpStatus: number | null;
     parsedRssItemCount: number | null;
     failureStage: "request" | "http" | "rss_parse";
@@ -430,6 +450,7 @@ function logBingAttemptFailure(
         ? { assistantTraceId: fields.assistantTraceId }
         : {}),
       searchPhrase,
+      searchSurface: fields.searchSurface,
       httpStatus: fields.httpStatus,
       parsedRssItemCount: fields.parsedRssItemCount,
       candidatesEnteringRelevanceScoring: 0,
@@ -442,6 +463,8 @@ function logBingAttemptFailure(
         missingPublicationDate: 0,
         outsideFreshnessWindow: 0,
         evergreenContent: 0,
+        notDirectArticle: 0,
+        nonSpecificStoryText: 0,
       },
       failureStage: fields.failureStage,
       ...(fields.error ? { errorType: errorType(fields.error) } : {}),
@@ -450,15 +473,15 @@ function logBingAttemptFailure(
   );
 }
 
-function parseBingRss(xml: string): WebSearchResult[] {
+export function parseBingRss(xml: string): WebSearchResult[] {
   return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
     .map((match) => {
       const item = match[1];
       const title = readTag(item, "title");
-      const url = readTag(item, "link");
+      const url = unwrapBingNewsLink(readTag(item, "link"));
       const snippet = readTag(item, "description");
       const publishedAt = readTag(item, "pubDate") || null;
-      if (!title || !snippet || !/^https?:\/\//i.test(url)) return null;
+      if (!title || !snippet || !url) return null;
       return { title, url, snippet, publishedAt };
     })
     .filter((result): result is WebSearchResult => Boolean(result));
@@ -468,11 +491,14 @@ async function fetchBingRss(
   query: string,
   subject: SearchSubject,
   traceId?: string,
+  searchSurface: SearchSurface = "web",
 ): Promise<WebSearchResult[]> {
   let response: Response;
   try {
     response = await fetch(
-      `https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`,
+      searchSurface === "news"
+        ? `https://www.bing.com/news/search?format=rss&q=${encodeURIComponent(query)}`
+        : `https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`,
       {
         headers: {
           Accept: "application/rss+xml, application/xml, text/xml",
@@ -483,6 +509,7 @@ async function fetchBingRss(
     );
   } catch (error) {
     logBingAttemptFailure(query, {
+      searchSurface,
       httpStatus: null,
       parsedRssItemCount: 0,
       failureStage: "request",
@@ -494,6 +521,7 @@ async function fetchBingRss(
 
   if (!response.ok) {
     logBingAttemptFailure(query, {
+      searchSurface,
       httpStatus: response.status,
       parsedRssItemCount: 0,
       failureStage: "http",
@@ -508,6 +536,7 @@ async function fetchBingRss(
     results = parseBingRss(xml);
   } catch (error) {
     logBingAttemptFailure(query, {
+      searchSurface,
       httpStatus: response.status,
       parsedRssItemCount: null,
       failureStage: "rss_parse",
@@ -521,6 +550,7 @@ async function fetchBingRss(
     {
       ...(traceId ? { assistantTraceId: traceId } : {}),
       searchPhrase: query,
+      searchSurface,
       httpStatus: response.status,
       parsedRssItemCount: results.length,
       ...getRelevanceDiagnostics(results, subject),
@@ -530,20 +560,45 @@ async function fetchBingRss(
   return results;
 }
 
+type FetchSearchResults = typeof fetchBingRss;
+
 export async function searchWeb(
   query: string,
   diagnostics?: WebSearchDiagnostics,
+  fetchResults: FetchSearchResults = fetchBingRss,
 ): Promise<WebSearchResponse> {
   const { normalizedQuery, subject, searchQueries } = buildWebSearchPlan(query);
   if (!normalizedQuery) throw new Error("Web search requires a non-empty query");
   diagnostics?.onSearchPlan?.({ normalizedQuery, searchQueries });
 
   const batches = await Promise.all(searchQueries.map((searchQuery) =>
-    fetchBingRss(searchQuery, subject, diagnostics?.traceId),
+    fetchResults(searchQuery, subject, diagnostics?.traceId, "web"),
   ));
-  const results = rankRelevantSearchResults(batches.flat(), subject);
+  let results = rankRelevantSearchResults(batches.flat(), subject);
+
+  if (subject.broadNewsFreshness && results.length === 0) {
+    const followUpQueries = searchQueries.slice(0, 2);
+    logger.info(
+      {
+        ...(diagnostics?.traceId ? { assistantTraceId: diagnostics.traceId } : {}),
+        stage: "news_article_follow_up",
+        followUpQueries,
+      },
+      "Initial broad-news search contained no usable dated articles",
+    );
+    const followUp = await Promise.allSettled(followUpQueries.map((searchQuery) =>
+      fetchResults(searchQuery, subject, diagnostics?.traceId, "news"),
+    ));
+    results = rankRelevantSearchResults(
+      followUp.flatMap((outcome) =>
+        outcome.status === "fulfilled" ? outcome.value : [],
+      ),
+      subject,
+    );
+  }
 
   if (results.length === 0) {
+    if (subject.broadNewsFreshness) throw new InsufficientNewsEvidenceError();
     throw new Error("Web search returned no results relevant to the requested subject");
   }
 
@@ -558,6 +613,14 @@ export async function searchWeb(
 export function buildWebSearchUnavailableContext(message: string): string {
   return `[Lumen live web search unavailable]
 Current information could not be retrieved or verified. Do not present stored knowledge or assumptions as current. Clearly tell the user that current information is unavailable, and limit the response to non-current general context if that would still be useful.
+
+[User request]
+${message}`;
+}
+
+export function buildWebSearchInsufficientContext(message: string): string {
+  return `[Lumen live web search found insufficient evidence]
+No relevant, dated news articles with direct story links could be verified. Search results may have contained news homepages or topic indexes, but their timestamps do not establish when any particular story was published. Do not present those pages as current-event evidence or invent headlines, dates, or citations. Tell the user that there is not enough verified current information to answer this request.
 
 [User request]
 ${message}`;
@@ -581,7 +644,9 @@ export async function resolveOptionalWebSearch(
   } catch (error) {
     return {
       webSearch: null,
-      providerContent: buildWebSearchUnavailableContext(message),
+      providerContent: error instanceof InsufficientNewsEvidenceError
+        ? buildWebSearchInsufficientContext(message)
+        : buildWebSearchUnavailableContext(message),
       error: error instanceof Error ? error : new Error(String(error)),
     };
   }

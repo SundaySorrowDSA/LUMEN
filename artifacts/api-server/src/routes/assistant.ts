@@ -30,6 +30,7 @@ import {
   type ProviderId,
 } from "@workspace/assistant-providers";
 import {
+  InsufficientNewsEvidenceError,
   requiresCurrentWebInformation,
   resolveOptionalWebSearch,
   searchWeb,
@@ -539,12 +540,18 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     );
   }
   if (webSearchOutcome.error) {
+    const insufficientEvidence =
+      webSearchOutcome.error instanceof InsufficientNewsEvidenceError;
     traceLog.warn(
       {
-        stage: "search_unavailable_fallback",
+        stage: insufficientEvidence
+          ? "search_insufficient_evidence"
+          : "search_unavailable_fallback",
         error: summarizeAssistantTraceError(webSearchOutcome.error),
       },
-      "Optional web search failed; continuing with explicit unavailable-current-information context",
+      insufficientEvidence
+        ? "Broad news search found no usable dated articles; continuing with insufficient-evidence context"
+        : "Optional web search failed; continuing with explicit unavailable-current-information context",
     );
   }
   const webSearch = webSearchOutcome.webSearch;
@@ -625,6 +632,8 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   const finalProviderId = consultationResult.consultation.requested ? "kindroid" : (body.providerId ?? activeProviderId);
   const searchContextKind = webSearch
     ? "search_results"
+    : webSearchOutcome.error instanceof InsufficientNewsEvidenceError
+      ? "insufficient_current_evidence"
     : webSearchRequested
       ? "unavailable_current_information_fallback"
       : localToolHandled
