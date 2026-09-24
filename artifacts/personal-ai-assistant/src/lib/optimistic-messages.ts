@@ -4,6 +4,7 @@ export type OptimisticMessage = {
   conversationId: number;
   content: string;
   submittedAt: string;
+  baselineMessageId: number;
   status: 'pending' | 'failed';
 };
 
@@ -15,8 +16,6 @@ export type DisplayMessage = AssistantMessage | (OptimisticMessage & {
   metadata: null;
   optimistic: true;
 });
-
-const RECONCILIATION_CLOCK_SKEW_MS = 5_000;
 
 export function appendUniqueMessages(
   messages: AssistantMessage[],
@@ -37,13 +36,34 @@ export function hasAuthoritativeMatch(
   optimistic: OptimisticMessage,
   messages: AssistantMessage[],
 ) {
-  const submittedAt = Date.parse(optimistic.submittedAt);
   return messages.some((message) => (
     message.conversationId === optimistic.conversationId
     && message.role === 'user'
     && message.content === optimistic.content
-    && Date.parse(message.createdAt) >= submittedAt - RECONCILIATION_CLOCK_SKEW_MS
+    && message.id > optimistic.baselineMessageId
   ));
+}
+
+export function restoreFailedDraft(
+  drafts: OptimisticMessage[],
+  submittedAt: string,
+) {
+  const draft = drafts.find(
+    (message) => message.submittedAt === submittedAt && message.status === 'failed',
+  );
+  return {
+    drafts,
+    composer: draft?.content ?? null,
+  };
+}
+
+export function dismissFailedDraft(
+  drafts: OptimisticMessage[],
+  submittedAt: string,
+) {
+  return drafts.filter(
+    (message) => message.submittedAt !== submittedAt || message.status !== 'failed',
+  );
 }
 
 export function buildDisplayMessages(

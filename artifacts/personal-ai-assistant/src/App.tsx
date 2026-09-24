@@ -1,4 +1,13 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import {
+  createContext,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -35,10 +44,16 @@ import NotFound from '@/pages/not-found';
 import {
   appendUniqueMessages,
   buildDisplayMessages,
+  dismissFailedDraft,
+  restoreFailedDraft,
   type OptimisticMessage,
 } from '@/lib/optimistic-messages';
 
 const queryClient = new QueryClient();
+const OptimisticMessagesContext = createContext<{
+  optimisticMessages: OptimisticMessage[];
+  setOptimisticMessages: Dispatch<SetStateAction<OptimisticMessage[]>>;
+} | null>(null);
 
 function urlBase64ToUint8Array(value: string) {
   const padding = '='.repeat((4 - value.length % 4) % 4);
@@ -363,6 +378,9 @@ function PageHeader({ eyebrow, title, detail, action }: { eyebrow: string; title
 }
 
 function Workspace() {
+  const optimisticMessagesState = useContext(OptimisticMessagesContext);
+  if (!optimisticMessagesState) throw new Error('Optimistic message state is unavailable.');
+  const { optimisticMessages, setOptimisticMessages } = optimisticMessagesState;
   const qc = useQueryClient();
   const overviewQuery = useGetAssistantOverview();
   const conversationsQuery = useListAssistantConversations();
@@ -380,7 +398,6 @@ function Workspace() {
   const deleteConversation = useDeleteAssistantConversation();
   const sendMessage = useSendAssistantMessage();
   const [isSubmittingMessage, setIsSubmittingMessage] = useState(false);
-  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
   const isThinking = isSubmittingMessage || sendMessage.isPending;
   const active = detailQuery.data;
   const canonicalMessages = active?.messages ?? [];
@@ -449,10 +466,14 @@ function Workspace() {
     if (!selected || !composer.trim() || isThinking) return;
     const content = composer.trim();
     const submittedAt = new Date().toISOString();
+    const baselineMessageId = canonicalMessages.reduce(
+      (latest, message) => Math.max(latest, message.id),
+      0,
+    );
     setComposer('');
     setOptimisticMessages((current) => [
       ...current,
-      { conversationId: selected, content, submittedAt, status: 'pending' },
+      { conversationId: selected, content, submittedAt, baselineMessageId, status: 'pending' },
     ]);
     setIsSubmittingMessage(true);
     sendMessage.mutate({ id: selected, data: { content } }, {
@@ -506,7 +527,7 @@ function Workspace() {
         <main className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background lg:min-h-[calc(100dvh-64px)]">
          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-8"><div className="min-w-0 flex-1"><div role="status" aria-live="polite" aria-atomic="true" title={active?.title ?? 'Ren status'} className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/[.06] px-2.5 py-1.5 text-xs text-foreground shadow-sm" data-testid="ren-mood-status" data-last-interaction-at={lastInteractionAt ?? ''} data-elapsed-ms={elapsedSinceLastInteractionMs ?? ''}><span aria-hidden="true" className="text-primary">{displayedRenMood.symbol}</span><span className="font-medium text-primary">Ren</span><span className="text-muted-foreground/50">·</span><span className="truncate text-muted-foreground">{displayedRenMood.label}</span></div><p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[.16em] text-muted-foreground">{active ? `${displayedMessages.length} messages · private thread` : 'No thread selected'}</p></div><div className="flex shrink-0 gap-2 lg:hidden"><button onClick={() => setMobilePanel('list')} aria-label="Open conversations" title="Open conversations" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground" data-testid="button-open-conversation-panel"><Archive size={15} /><span>Chats</span></button><button onClick={() => setMobilePanel('context')} aria-label="Open context and capabilities" title="Open context and capabilities" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground" data-testid="button-open-context-panel"><Activity size={15} /><span className="min-[360px]:hidden">Info</span><span className="hidden min-[360px]:inline">Context</span></button></div>{active && <button onClick={() => { if (confirm('Delete this conversation?')) deleteConversation.mutate({ id: active.id }, { onSuccess: () => { setSelectedId(null); qc.invalidateQueries({ queryKey: getListAssistantConversationsQueryKey() }); qc.invalidateQueries({ queryKey: getGetAssistantOverviewQueryKey() }); } }); }} aria-label="Delete conversation" title="Delete conversation" className="hidden rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive sm:block" data-testid="button-delete-conversation"><Trash2 size={15} /></button>}</div>
          <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 sm:px-8 lg:px-14">
-            {!selected ? <div className="flex h-full min-h-[420px] flex-col items-center justify-center text-center"><div className="mb-5 flex h-16 w-16 items-center justify-center rounded-lg border border-accent/40 bg-accent/10 text-primary"><Sparkles size={25} strokeWidth={1.4} /></div><h2 className="font-serif text-3xl">A clear place to begin.</h2><p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">Choose a thread or open a new one. Lumen is here to think alongside you.</p><button onClick={() => setShowNew(true)} className="mt-6 flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm text-primary-foreground transition-transform hover:-translate-y-0.5" data-testid="button-empty-new-conversation"><Plus size={15} /> Start a thread</button></div> : detailQuery.isLoading ? <div className="mx-auto max-w-2xl pt-8"><LoadingLines count={7} /></div> : detailQuery.isError ? <div className="mx-auto mt-10 max-w-sm rounded-lg border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="text-sm font-medium text-destructive">This thread could not be opened.</p><button onClick={() => detailQuery.refetch()} className="mt-3 text-xs underline" data-testid="button-retry-conversation">Try again</button></div> : displayedMessages.length === 0 ? <div className="mx-auto flex min-h-[400px] max-w-xl flex-col items-center justify-center text-center"><div className="mb-5 font-mono text-[10px] uppercase tracking-[.2em] text-accent">New thread</div><h2 className="font-serif text-4xl">What should we hold today?</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">Ask for a considered answer, a web search, or a small action. You stay in control.</p><div className="mt-8 grid grid-cols-1 gap-2 text-left sm:grid-cols-3"><button onClick={() => setComposer('Help me make sense of something I am working through')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-clarify">Make sense of something</button><button onClick={() => setComposer('Research this topic and bring me the useful details')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-research">Research a topic</button><button onClick={() => setComposer('Help me plan the next steps for a project')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-plan">Plan next steps</button></div></div> : <div className="mx-auto max-w-2xl space-y-8">{displayedMessages.map((message) => { const isOptimistic = 'optimistic' in message; return <div key={message.id} className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`} data-testid={`message-${message.id}`}><div className={`max-w-[88%] ${message.role === 'user' ? `rounded-lg rounded-br-md px-4 py-3 text-primary-foreground ${isOptimistic && message.status === 'failed' ? 'bg-destructive/80' : 'bg-primary'}` : 'pt-1'}`}><div className={`whitespace-pre-wrap text-[14px] leading-7 ${message.role === 'assistant' ? 'text-foreground/85' : ''}`}>{message.content}</div><div className={`mt-2 font-mono text-[9px] uppercase tracking-[.12em] ${message.role === 'user' ? 'text-primary-foreground/55' : 'text-muted-foreground'}`}>{isOptimistic ? (message.status === 'failed' ? 'Not sent · text preserved' : 'Sending…') : message.role === 'assistant' ? `${message.model ?? overview?.model ?? 'Lumen'} · ${formatDate(message.createdAt)}` : formatDate(message.createdAt)}</div></div></div>; })}{isThinking && <div className="flex gap-4"><div className="flex items-center gap-2 pt-1 text-muted-foreground"><span className="flex gap-1"><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:120ms]" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:240ms]" /></span><span className="font-mono text-[10px] uppercase tracking-widest">Thinking</span></div></div>}</div>}
+            {!selected ? <div className="flex h-full min-h-[420px] flex-col items-center justify-center text-center"><div className="mb-5 flex h-16 w-16 items-center justify-center rounded-lg border border-accent/40 bg-accent/10 text-primary"><Sparkles size={25} strokeWidth={1.4} /></div><h2 className="font-serif text-3xl">A clear place to begin.</h2><p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">Choose a thread or open a new one. Lumen is here to think alongside you.</p><button onClick={() => setShowNew(true)} className="mt-6 flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm text-primary-foreground transition-transform hover:-translate-y-0.5" data-testid="button-empty-new-conversation"><Plus size={15} /> Start a thread</button></div> : detailQuery.isLoading ? <div className="mx-auto max-w-2xl pt-8"><LoadingLines count={7} /></div> : detailQuery.isError ? <div className="mx-auto mt-10 max-w-sm rounded-lg border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="text-sm font-medium text-destructive">This thread could not be opened.</p><button onClick={() => detailQuery.refetch()} className="mt-3 text-xs underline" data-testid="button-retry-conversation">Try again</button></div> : displayedMessages.length === 0 ? <div className="mx-auto flex min-h-[400px] max-w-xl flex-col items-center justify-center text-center"><div className="mb-5 font-mono text-[10px] uppercase tracking-[.2em] text-accent">New thread</div><h2 className="font-serif text-4xl">What should we hold today?</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">Ask for a considered answer, a web search, or a small action. You stay in control.</p><div className="mt-8 grid grid-cols-1 gap-2 text-left sm:grid-cols-3"><button onClick={() => setComposer('Help me make sense of something I am working through')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-clarify">Make sense of something</button><button onClick={() => setComposer('Research this topic and bring me the useful details')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-research">Research a topic</button><button onClick={() => setComposer('Help me plan the next steps for a project')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-plan">Plan next steps</button></div></div> : <div className="mx-auto max-w-2xl space-y-8">{displayedMessages.map((message) => { const isOptimistic = 'optimistic' in message; return <div key={message.id} className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`} data-testid={`message-${message.id}`}><div className={`max-w-[88%] ${message.role === 'user' ? `rounded-lg rounded-br-md px-4 py-3 text-primary-foreground ${isOptimistic && message.status === 'failed' ? 'bg-destructive/80' : 'bg-primary'}` : 'pt-1'}`}><div className={`whitespace-pre-wrap text-[14px] leading-7 ${message.role === 'assistant' ? 'text-foreground/85' : ''}`}>{message.content}</div><div className={`mt-2 font-mono text-[9px] uppercase tracking-[.12em] ${message.role === 'user' ? 'text-primary-foreground/55' : 'text-muted-foreground'}`}>{isOptimistic ? (message.status === 'failed' ? 'Not sent · text preserved' : 'Sending…') : message.role === 'assistant' ? `${message.model ?? overview?.model ?? 'Lumen'} · ${formatDate(message.createdAt)}` : formatDate(message.createdAt)}</div>{isOptimistic && message.status === 'failed' && <div className="mt-3 flex gap-3 border-t border-white/20 pt-2 text-[11px] font-medium"><button type="button" className="underline underline-offset-2" onClick={() => { const restored = restoreFailedDraft(optimisticMessages, message.submittedAt); if (restored.composer !== null) setComposer(restored.composer); }} data-testid={`button-restore-${message.submittedAt}`}>Restore to composer</button><button type="button" className="text-primary-foreground/70 underline underline-offset-2" onClick={() => setOptimisticMessages((current) => dismissFailedDraft(current, message.submittedAt))} data-testid={`button-dismiss-${message.submittedAt}`}>Dismiss</button></div>}</div></div>; })}{isThinking && <div className="flex gap-4"><div className="flex items-center gap-2 pt-1 text-muted-foreground"><span className="flex gap-1"><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:120ms]" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:240ms]" /></span><span className="font-mono text-[10px] uppercase tracking-widest">Thinking</span></div></div>}</div>}
         </div>
          <div className="shrink-0 border-t border-border bg-background/90 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur sm:px-8 lg:px-14">
            <div className="mx-auto max-w-2xl">
@@ -626,7 +647,8 @@ function Stat({ icon, value, label }: { icon: ReactNode; value: number; label: s
 }
 
 function Router() {
-  return <AppShell><ErrorBoundary resetKey={location.pathname}><Switch><Route path="/" component={Workspace} /><Route path="/memory" component={MemoryPage} /><Route path="/connections" component={ConnectionsPage} /><Route component={NotFound} /></Switch></ErrorBoundary></AppShell>;
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
+  return <OptimisticMessagesContext.Provider value={{ optimisticMessages, setOptimisticMessages }}><AppShell><ErrorBoundary resetKey={location.pathname}><Switch><Route path="/" component={Workspace} /><Route path="/memory" component={MemoryPage} /><Route path="/connections" component={ConnectionsPage} /><Route component={NotFound} /></Switch></ErrorBoundary></AppShell></OptimisticMessagesContext.Provider>;
 }
 
  function App() {

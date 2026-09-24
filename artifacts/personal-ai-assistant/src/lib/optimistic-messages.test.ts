@@ -4,6 +4,8 @@ import type { AssistantMessage } from '@workspace/api-client-react';
 import {
   appendUniqueMessages,
   buildDisplayMessages,
+  dismissFailedDraft,
+  restoreFailedDraft,
   type OptimisticMessage,
 } from './optimistic-messages.ts';
 
@@ -12,6 +14,7 @@ const optimistic: OptimisticMessage = {
   conversationId: 7,
   content: 'Show this immediately',
   submittedAt,
+  baselineMessageId: 40,
   status: 'pending',
 };
 const userMessage: AssistantMessage = {
@@ -61,6 +64,26 @@ test('keeps failed submitted text visible without creating another message', () 
   assert.equal(displayed[0]?.status, 'failed');
 });
 
+test('does not reconcile a failed draft against an older matching server message', () => {
+  const failed = { ...optimistic, baselineMessageId: 41, status: 'failed' as const };
+  const displayed = buildDisplayMessages([userMessage], [failed]);
+
+  assert.deepEqual(displayed.map((message) => message.id), [
+    41,
+    `optimistic-7-${submittedAt}`,
+  ]);
+});
+
+test('keeps a failed draft across refreshed canonical messages', () => {
+  const failed = { ...optimistic, baselineMessageId: 42, status: 'failed' as const };
+  const displayedBefore = buildDisplayMessages([], [failed]);
+  const displayedAfter = buildDisplayMessages([userMessage, assistantMessage], [failed]);
+
+  assert.equal(displayedBefore.at(-1)?.content, optimistic.content);
+  assert.equal(displayedAfter.at(-1)?.content, optimistic.content);
+  assert.equal(displayedAfter.at(-1)?.status, 'failed');
+});
+
 test('keeps earlier failed text visible during a later submission', () => {
   const failed = { ...optimistic, status: 'failed' as const };
   const later = {
@@ -74,4 +97,23 @@ test('keeps earlier failed text visible during a later submission', () => {
     optimistic.content,
     later.content,
   ]);
+});
+
+test('Restore returns the original text without removing or sending the draft', () => {
+  const failed = { ...optimistic, status: 'failed' as const };
+  const result = restoreFailedDraft([failed], submittedAt);
+
+  assert.equal(result.composer, optimistic.content);
+  assert.deepEqual(result.drafts, [failed]);
+});
+
+test('Dismiss removes only the selected failed draft', () => {
+  const failed = { ...optimistic, status: 'failed' as const };
+  const other = {
+    ...failed,
+    content: 'Keep me',
+    submittedAt: '2026-09-24T15:02:00.000Z',
+  };
+
+  assert.deepEqual(dismissFailedDraft([failed, other], submittedAt), [other]);
 });
