@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "VoTkGWh2xYKkWRtfykWqn"
+uri = "file://lumen-clean.zip"
+type = "unspecified"
+title = "Lumen clean project ZIP"
+description = "Downloadable Lumen source and configuration archive, excluding node_modules, workspace caches, environment files, the old archive, and generated dist outputs."
+logical_id = "d6a495d0-5709-4f1a-a929-b1f4f3506827"
+content_hash = "sha256:54d37633e6458528346ff1feeacaf87e366b039a8f7b857ce8c6641f85a1a5f0"
+size = 723441
+mtime_ms = 1790257568732
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/d6a495d0-5709-4f1a-a929-b1f4f3506827/2714ccaf-d8a4-4186-acc2-d11cefc62ef7"
+storage_version_token = "1790257574637719"
+content_type = "application/octet-stream"
