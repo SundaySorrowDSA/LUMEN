@@ -51,7 +51,9 @@ const SEARCH_STOP_WORDS = new Set([
 const BROAD_CURRENT_EVENTS_PATTERN =
   /\b(?:current|latest|recent|today(?:['’]s)?)\s+events?\b/i;
 const AMERICA_LOCATION_PATTERN =
-  /\b(?:america|american|united states(?: of america)?|u\.s\.a?\.?|us|usa)(?=\b|[\s.,;:!?()'’"-]|$)/i;
+  /\b(?:america|american|united states(?: of america)?|usa)\b/i;
+const U_S_LOCATION_PATTERN =
+  /\b(?:US|U\.S\.)(?=\s|[.,;:!?()'’"-]|$)/;
 const AMERICA_LOCATION_TOKENS = new Set([
   "america",
   "american",
@@ -137,7 +139,7 @@ export function extractSearchSubject(query: string): SearchSubject {
   const terms = broadCurrentEvents
     ? extractedTerms.filter((term) => term !== "event" && term !== "events")
     : extractedTerms;
-  if (AMERICA_LOCATION_PATTERN.test(explicitSubject)) {
+  if (matchesAmericaLocation(explicitSubject)) {
     const nonLocationTerms = terms.filter((term) => !AMERICA_LOCATION_TOKENS.has(term));
     nonLocationTerms.unshift("america");
     terms.splice(0, terms.length, ...nonLocationTerms);
@@ -155,9 +157,13 @@ function hostMatches(hostname: string, expectedHost: string): boolean {
   return hostname === expectedHost || hostname.endsWith(`.${expectedHost}`);
 }
 
+function matchesAmericaLocation(text: string): boolean {
+  return AMERICA_LOCATION_PATTERN.test(text) || U_S_LOCATION_PATTERN.test(text);
+}
+
 function matchesSubjectTerm(searchableText: string, term: string): boolean {
-  if (term === "america") return AMERICA_LOCATION_PATTERN.test(searchableText);
-  return searchableText.includes(term);
+  if (term === "america") return matchesAmericaLocation(searchableText);
+  return searchableText.toLowerCase().includes(term);
 }
 
 export function scoreResult(result: WebSearchResult, subject: SearchSubject): number | null {
@@ -185,14 +191,14 @@ function evaluateSearchResult(
     return { score: null, rejectionCategories: ["invalidUrl"] };
   }
 
-  const title = result.title.toLowerCase();
-  const searchableText = `${result.title} ${result.snippet} ${hostname}`.toLowerCase();
+  const title = result.title;
+  const searchableText = `${result.title} ${result.snippet} ${hostname}`;
   const authoritative = subject.authoritativeHosts.some((host) => hostMatches(hostname, host));
   const matchedTerms = subject.terms.filter((term) => matchesSubjectTerm(searchableText, term));
   const hasSubject = subject.terms.length === 0 || matchedTerms.length === subject.terms.length;
   const hasContext =
     subject.contextTerms.length === 0 ||
-    subject.contextTerms.some((term) => searchableText.includes(term));
+    subject.contextTerms.some((term) => searchableText.toLowerCase().includes(term));
 
   const rejectionCategories: RelevanceRejectionCategory[] = [];
   if (!authoritative && !hasSubject) rejectionCategories.push("missingSubjectTerms");
@@ -204,7 +210,7 @@ function evaluateSearchResult(
   let score = authoritative ? 100 : 0;
   score += matchedTerms.length * 20;
   score += subject.terms.filter((term) => matchesSubjectTerm(title, term)).length * 20;
-  score += subject.contextTerms.filter((term) => title.includes(term)).length * 5;
+  score += subject.contextTerms.filter((term) => title.toLowerCase().includes(term)).length * 5;
   if (result.publishedAt) score += 5;
   if (/\b(news|update|announcement|release|launch)\b/i.test(`${result.title} ${result.snippet}`)) {
     score += 5;

@@ -19,7 +19,7 @@ test("excludes conversational framing from the search subject", () => {
   const subject = extractSearchSubject(normalized);
 
   assert.equal(normalized, "current developments in American infrastructure");
-  assert.deepEqual(subject.terms, ["developments", "american", "infrastructure"]);
+  assert.deepEqual(subject.terms, ["america", "developments", "infrastructure"]);
 });
 
 test("retains meaningful topic and location terms", () => {
@@ -77,10 +77,21 @@ test("does not require the literal word events, but rejects unrelated results", 
     snippet: "A report on today's national developments.",
     publishedAt: null,
   };
+  const lowercasePronounNews: WebSearchResult = {
+    title: "World news: tell us what you think",
+    url: "https://news.example.org/world",
+    snippet: "A report on international developments.",
+    publishedAt: null,
+  };
 
   assert.deepEqual(
     rankRelevantSearchResults(
-      [unrelatedAmericanPage, unrelatedForeignNews, relevantNews],
+      [
+        unrelatedAmericanPage,
+        unrelatedForeignNews,
+        lowercasePronounNews,
+        relevantNews,
+      ],
       subject,
     ),
     [relevantNews],
@@ -118,10 +129,10 @@ test("reports parsed candidate counts and rejection categories without result te
 
   assert.deepEqual(getRelevanceDiagnostics(results, subject), {
     candidatesEnteringRelevanceScoring: 4,
-    acceptedAfterRelevance: 1,
+    acceptedAfterRelevance: 2,
     rejectionCategories: {
       invalidUrl: 1,
-      missingSubjectTerms: 2,
+      missingSubjectTerms: 1,
       missingContextTerms: 0,
     },
   });
