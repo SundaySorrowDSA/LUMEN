@@ -5,6 +5,7 @@ import {
   type SetStateAction,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -428,6 +429,7 @@ function Workspace() {
   const [showNew, setShowNew] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'list' | 'context' | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const assistantTraceIdRef = useRef<string | null>(null);
   const assistantTraceHeadersRef = useRef<Record<string, string>>({});
   const selected = selectedId ?? overview?.activeConversationId ?? conversations[0]?.id ?? null;
@@ -468,6 +470,20 @@ function Workspace() {
     const messages = messagesRef.current;
     if (messages) messages.scrollTop = messages.scrollHeight;
   }, [displayedMessages.length, isThinking]);
+
+  useLayoutEffect(() => {
+    const textarea = composerRef.current;
+    if (!textarea) return;
+    const resize = () => {
+      textarea.style.height = '';
+      if (window.matchMedia('(max-width: 639px)').matches) {
+        textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+      }
+    };
+    resize();
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, [composer]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setClockNow(Date.now()), 30_000);
@@ -616,8 +632,9 @@ function Workspace() {
         </div>
          <div className="shrink-0 border-t border-border bg-background/90 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur sm:px-8 lg:px-14">
            <div className="mx-auto max-w-2xl">
-             <div className="relative rounded-lg border border-border bg-card shadow-lg shadow-black/50 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
+              <div className="relative flex items-end gap-2 rounded-lg border border-border bg-card py-1 pr-1 shadow-lg shadow-black/50 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20 sm:block sm:py-0 sm:pr-0">
                <textarea
+                  ref={composerRef}
                  value={composer}
                  onChange={(event) => setComposer(event.target.value)}
                  onKeyDown={(event) => {
@@ -626,15 +643,15 @@ function Workspace() {
                      submitMessage();
                    }
                  }}
-                 rows={2}
+                  rows={1}
                   disabled={!selected || isThinking}
                  placeholder={selected ? 'Write to Lumen…' : 'Open a conversation to begin'}
                  aria-label="Message Lumen"
-                 className="w-full resize-none bg-transparent px-4 pb-12 pt-3 text-sm leading-6 outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
+                  className="min-h-10 min-w-0 max-h-36 flex-1 resize-none overflow-y-auto bg-transparent px-4 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed sm:min-h-[108px] sm:w-full sm:max-h-none sm:pb-12 sm:pt-3"
                  data-testid="input-message-composer"
                />
-               <div className="absolute inset-x-3 bottom-2 flex items-center justify-between gap-3">
-                 <span className="truncate font-mono text-[9px] uppercase tracking-[.13em] text-muted-foreground/60">Enter to send · Shift + Enter for line break</span>
+                <div className="shrink-0 sm:absolute sm:inset-x-3 sm:bottom-2 sm:flex sm:items-center sm:justify-between sm:gap-3">
+                  <span className="hidden truncate font-mono text-[9px] uppercase tracking-[.13em] text-muted-foreground/60 sm:inline">Enter to send · Shift + Enter for line break</span>
                  <button
                    onClick={submitMessage}
                    aria-label="Send message"

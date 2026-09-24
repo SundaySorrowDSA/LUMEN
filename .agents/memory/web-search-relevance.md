@@ -20,3 +20,9 @@ Broad-news RSS results need direct story links, story-specific text, and an item
 **Why:** A live manual search accepted four apparently fresh U.S. news results, all homepages or topic listings. The conversational provider received no article-level citations even though the search reported success.
 
 **How to apply:** Distinguish publisher story URLs from navigation pages before ranking, unwrap news-aggregator redirect links to the actual story target, and report insufficient evidence when no dated direct articles survive. Keep any client-abort investigation separate from search quality.
+
+The user confirmed that a real broad U.S. current-events manual test succeeded after the bounded BBC U.S. & Canada RSS fallback was added. This is a point-in-time confirmation, not a guarantee that the feed will always supply sufficient stories.
+
+**Why:** Earlier Bing queries had returned only indexes or no usable items; the publisher feed supplied dated direct stories without weakening the existing validation gates.
+
+**How to apply:** Keep the publisher fallback bounded and behind the unchanged relevance checks. Do not expand sources or loosen rules solely on the strength of this one successful manual test.
