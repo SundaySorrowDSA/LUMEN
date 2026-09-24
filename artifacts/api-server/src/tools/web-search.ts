@@ -27,6 +27,7 @@ export type SearchSubject = {
   searchPhrase: string;
   authoritativeHosts: string[];
   contextTerms: string[];
+  broadNewsFreshness?: "today" | "this_week" | "latest";
 };
 
 const CURRENT_INFORMATION_PATTERN =
@@ -70,6 +71,20 @@ const AMERICA_LOCATION_TOKENS = new Set([
   "us",
   "usa",
 ]);
+const BROAD_NEWS_LOCATION_PATTERN =
+  /^(.+?)\s+(in|across|from|around|for|about)\s+(?:the\s+)?([a-z][a-z.' -]{1,64}?)(?:\s+(today|right now|this week|currently|now))?[?!.,;:]*$/i;
+const BROAD_NEWS_TOPIC_PATTERN =
+  /^(?:(?:current|latest|recent|today'?s?)\s+(?:events?|news|headlines?)(?:\s+(?:today|this week))?|(?:current|latest|recent|today'?s?)\s+(?:world|global)\s+(?:news|headlines?)|(?:news|headlines?)\s+(?:today|this week|now)|happening|going on)$/i;
+const NEWS_SOURCE_HOSTS = [
+  "apnews.com", "reuters.com", "npr.org", "pbs.org", "bbc.com", "bbc.co.uk",
+  "abcnews.go.com", "cbsnews.com", "nbcnews.com", "cnn.com", "theguardian.com",
+  "nytimes.com", "washingtonpost.com", "usatoday.com", "politico.com",
+  "axios.com", "bloomberg.com", "wsj.com", "latimes.com",
+];
+const NEWS_ARTICLE_PATH =
+  /^\/(?:news|article|articles|story|stories|politics|us-news|world|national)(?:\/|$)/i;
+const EVERGREEN_HEADLINE =
+  /\b(?:guide to|travel guide|visitor'?s guide|historic landmarks|things to do|tourist attractions|recipe)\b/i;
 const BROAD_CURRENT_EVENTS_CONTEXT_TERMS = ["news", "event", "report", "update"];
 
 const CONVERSATIONAL_SEARCH_PREFIX =
@@ -108,6 +123,46 @@ export function normalizeWebSearchQuery(message: string): string {
     .trim();
 
   return normalized.replace(/[?!.,;:]+$/g, "") || message.trim();
+}
+
+function parseBroadNewsIntent(message: string) {
+  const normalized = normalizeWebSearchQuery(message).replace(/[’]/g, "'");
+  const match = normalized.match(BROAD_NEWS_LOCATION_PATTERN);
+  const topic = (match?.[1] ?? normalized)
+    .replace(/^(?:(?:what(?:'s| is)|what are)\s+(?:the\s+)?|any\s+|the\s+)/i, "")
+    .trim();
+  if (
+    !BROAD_NEWS_TOPIC_PATTERN.test(topic) &&
+    !((match?.[4] || /\btoday(?:['’]s)?\b/i.test(message)) &&
+      /^(?:news|headlines?)$/i.test(topic))
+  ) return null;
+
+  let geography = "World";
+  let terms: string[] = [];
+  if (match) {
+    const location = match[3].trim().replace(/\s+/g, " ");
+    if (
+      location.split(" ").length > 4 ||
+      /\b(?:in|across|from|around|for|about)\b/i.test(location)
+    ) return null;
+    const isUnitedStates =
+      /^(?:america|american|united states(?: of america)?|usa|u\.?s\.?)$/i.test(location);
+    if (match[2].toLowerCase() === "about" && !isUnitedStates) return null;
+    geography = isUnitedStates ? "United States" : location;
+    terms = isUnitedStates
+      ? ["america"]
+      : geography.toLowerCase().match(/[a-z][a-z'-]*/g)?.filter(
+          (term) => term !== "the" && term !== "of",
+        ) ?? [];
+    if (terms.length === 0) return null;
+  }
+
+  const freshness = /\btoday(?:['’]s)?\b|\bright now\b|\bnow\b/i.test(message)
+    ? "today"
+    : /\bthis week\b/i.test(message)
+      ? "this_week"
+      : "latest";
+  return { geography, terms, freshness } as const;
 }
 
 function decodeXml(value: string): string {
@@ -181,7 +236,11 @@ export function scoreResult(result: WebSearchResult, subject: SearchSubject): nu
 type RelevanceRejectionCategory =
   | "invalidUrl"
   | "missingSubjectTerms"
-  | "missingContextTerms";
+  | "missingContextTerms"
+  | "missingNewsSourceContext"
+  | "missingPublicationDate"
+  | "outsideFreshnessWindow"
+  | "evergreenContent";
 
 type RelevanceEvaluation = {
   score: number | null;
@@ -192,18 +251,59 @@ function evaluateSearchResult(
   result: WebSearchResult,
   subject: SearchSubject,
 ): RelevanceEvaluation {
-  let hostname: string;
+  let url: URL;
   try {
-    hostname = new URL(result.url).hostname.toLowerCase();
+    url = new URL(result.url);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return { score: null, rejectionCategories: ["invalidUrl"] };
+    }
   } catch {
     return { score: null, rejectionCategories: ["invalidUrl"] };
   }
+  const hostname = url.hostname.toLowerCase();
 
   const title = result.title;
   const searchableText = `${result.title} ${result.snippet} ${hostname}`;
   const authoritative = subject.authoritativeHosts.some((host) => hostMatches(hostname, host));
-  const matchedTerms = subject.terms.filter((term) => matchesSubjectTerm(searchableText, term));
+  const matchedTerms = subject.terms.filter((term) =>
+    matchesSubjectTerm(
+      subject.broadNewsFreshness ? `${result.title} ${result.snippet}` : searchableText,
+      term,
+    ),
+  );
   const hasSubject = subject.terms.length === 0 || matchedTerms.length === subject.terms.length;
+  if (subject.broadNewsFreshness) {
+    const newsSource =
+      NEWS_SOURCE_HOSTS.some((host) => hostMatches(hostname, host)) ||
+      /(^|[.-])news([.-]|$)/i.test(hostname) ||
+      NEWS_ARTICLE_PATH.test(url.pathname);
+    const publicationTime = result.publishedAt
+      ? Date.parse(result.publishedAt)
+      : NaN;
+    const hasPublicationDate = Number.isFinite(publicationTime);
+    const maxAgeMs = subject.broadNewsFreshness === "today"
+      ? 36 * 60 * 60 * 1000
+      : subject.broadNewsFreshness === "this_week"
+        ? 8 * 24 * 60 * 60 * 1000
+        : 7 * 24 * 60 * 60 * 1000;
+    const ageMs = Date.now() - publicationTime;
+    const withinFreshnessWindow =
+      hasPublicationDate && ageMs >= -2 * 60 * 60 * 1000 && ageMs <= maxAgeMs;
+    const rejectionCategories: RelevanceRejectionCategory[] = [];
+    if (!hasSubject) rejectionCategories.push("missingSubjectTerms");
+    if (!newsSource) rejectionCategories.push("missingNewsSourceContext");
+    if (EVERGREEN_HEADLINE.test(title)) rejectionCategories.push("evergreenContent");
+    if (!hasPublicationDate) rejectionCategories.push("missingPublicationDate");
+    else if (!withinFreshnessWindow) rejectionCategories.push("outsideFreshnessWindow");
+    if (rejectionCategories.length) return { score: null, rejectionCategories };
+
+    const titleMatches = subject.terms.filter((term) =>
+      matchesSubjectTerm(title, term),
+    ).length;
+    return { score: 50 + titleMatches * 20 + (NEWS_SOURCE_HOSTS.some(
+      (host) => hostMatches(hostname, host),
+    ) ? 20 : 0) - ageMs / (24 * 60 * 60 * 1000), rejectionCategories: [] };
+  }
   const hasContext =
     subject.contextTerms.length === 0 ||
     subject.contextTerms.some((term) => searchableText.toLowerCase().includes(term));
@@ -234,6 +334,10 @@ export function getRelevanceDiagnostics(
     invalidUrl: 0,
     missingSubjectTerms: 0,
     missingContextTerms: 0,
+    missingNewsSourceContext: 0,
+    missingPublicationDate: 0,
+    outsideFreshnessWindow: 0,
+    evergreenContent: 0,
   };
   let acceptedAfterRelevance = 0;
 
@@ -253,6 +357,30 @@ export function getRelevanceDiagnostics(
 }
 
 export function buildWebSearchPlan(query: string) {
+  const broadNews = parseBroadNewsIntent(query);
+  if (broadNews) {
+    const freshnessPhrase = broadNews.freshness === "this_week"
+      ? "this week"
+      : broadNews.freshness === "today"
+        ? "today"
+        : "latest";
+    const normalizedQuery = `${broadNews.geography} news ${freshnessPhrase}`;
+    const subject: SearchSubject = {
+      terms: broadNews.terms,
+      searchPhrase: broadNews.geography,
+      authoritativeHosts: [],
+      contextTerms: [],
+      broadNewsFreshness: broadNews.freshness,
+    };
+    return {
+      normalizedQuery,
+      subject,
+      searchQueries: [
+        normalizedQuery,
+        `${broadNews.geography} headlines ${freshnessPhrase}`,
+      ],
+    };
+  }
   const normalizedQuery = normalizeWebSearchQuery(query);
   const subject = extractSearchSubject(normalizedQuery);
   const searchQueries = [...new Set([
@@ -310,6 +438,10 @@ function logBingAttemptFailure(
         invalidUrl: 0,
         missingSubjectTerms: 0,
         missingContextTerms: 0,
+        missingNewsSourceContext: 0,
+        missingPublicationDate: 0,
+        outsideFreshnessWindow: 0,
+        evergreenContent: 0,
       },
       failureStage: fields.failureStage,
       ...(fields.error ? { errorType: errorType(fields.error) } : {}),

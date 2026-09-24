@@ -6,11 +6,14 @@ import {
   getRelevanceDiagnostics,
   normalizeWebSearchQuery,
   rankRelevantSearchResults,
+  requiresCurrentWebInformation,
   resolveOptionalWebSearch,
   type WebSearchResult,
 } from "./web-search.js";
 
 const diagnosedPrompt = "What are your thoughts on today’s current events in America";
+const recentDate = new Date(Date.now() - 60 * 60 * 1000).toUTCString();
+const staleDate = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toUTCString();
 
 test("excludes conversational framing from the search subject", () => {
   const normalized = normalizeWebSearchQuery(
@@ -30,57 +33,120 @@ test("retains meaningful topic and location terms", () => {
   assert.ok(plan.searchQueries.every((query) => query.includes("California")));
 });
 
-test("builds the diagnosed query around current events in America", () => {
-  const plan = buildWebSearchPlan(diagnosedPrompt);
+test("broad news paraphrases keep geography and freshness without duplicate terms", () => {
+  for (const prompt of [
+    diagnosedPrompt,
+    "the current events in America today",
+    "What's happening in the U.S. today?",
+    "What are the latest headlines in the United States today?",
+    "News in America today?",
+    "Today's headlines in America",
+  ]) {
+    const plan = buildWebSearchPlan(prompt);
+    assert.equal(plan.normalizedQuery, "United States news today", prompt);
+    assert.deepEqual(plan.searchQueries, [
+      "United States news today",
+      "United States headlines today",
+    ], prompt);
+    assert.deepEqual(plan.subject.terms, ["america"], prompt);
+    assert.equal(plan.subject.broadNewsFreshness, "today", prompt);
+  }
 
-  assert.equal(plan.normalizedQuery, "current events in America");
-  assert.deepEqual(plan.subject.terms, ["america"]);
-  assert.equal(plan.subject.searchPhrase, "america");
-  assert.deepEqual(plan.subject.contextTerms, ["news", "event", "report", "update"]);
-  assert.deepEqual(plan.searchQueries, [
-    "current events in America",
-    "america current events in America",
+  const weekly = buildWebSearchPlan("What's the latest news in the US this week?");
+  assert.deepEqual(weekly.searchQueries, [
+    "United States news this week",
+    "United States headlines this week",
   ]);
+  assert.equal(weekly.subject.broadNewsFreshness, "this_week");
+
+  const canada = buildWebSearchPlan("What are the latest headlines from Canada?");
+  assert.deepEqual(canada.searchQueries, [
+    "Canada news latest",
+    "Canada headlines latest",
+  ]);
+  assert.deepEqual(canada.subject.terms, ["canada"]);
+  assert.equal(canada.subject.broadNewsFreshness, "latest");
+
+  const worldwide = buildWebSearchPlan("What's the latest world news?");
+  assert.deepEqual(worldwide.searchQueries, [
+    "World news latest",
+    "World headlines latest",
+  ]);
+  const broadWorldwide = buildWebSearchPlan("What are the current events?");
+  assert.deepEqual(broadWorldwide.searchQueries, [
+    "World news latest",
+    "World headlines latest",
+  ]);
+  assert.deepEqual(broadWorldwide.subject.terms, []);
 });
 
-test("accepts relevant current U.S. news across common America spellings", () => {
+test("ordinary topical searches and small talk keep their previous paths", () => {
+  const topical = buildWebSearchPlan("latest news about US elections");
+  assert.equal(topical.subject.broadNewsFreshness, undefined);
+  assert.deepEqual(topical.subject.terms, ["america", "elections"]);
+  const specific = buildWebSearchPlan("latest news about climate policy in America");
+  assert.equal(specific.subject.broadNewsFreshness, undefined);
+  assert.deepEqual(specific.subject.terms, ["america", "climate", "policy"]);
+  assert.equal(requiresCurrentWebInformation("How are you feeling today?"), true);
+  assert.equal(requiresCurrentWebInformation("How are you feeling?"), false);
+});
+
+test("accepts dated U.S. headlines across location spellings without mandatory context words", () => {
   const { subject } = buildWebSearchPlan(diagnosedPrompt);
   const relevant = ["America", "American", "US", "U.S.", "United States"].map(
     (location, index): WebSearchResult => ({
-      title: `${location} headlines`,
-      url: `https://news${index}.example.com/story`,
-      snippet: "News coverage of a major national development.",
-      publishedAt: null,
+      title: `${location} Senate passes funding bill`,
+      url: `https://www.reuters.com/world/us/senate-vote-${index}/`,
+      snippet: "Lawmakers voted on the measure in Washington.",
+      publishedAt: recentDate,
     }),
   );
 
   assert.deepEqual(rankRelevantSearchResults(relevant, subject), relevant);
 });
 
-test("does not require the literal word events, but rejects unrelated results", () => {
+test("rejects unrelated America pages and stale or undated material presented as today", () => {
   const { subject } = buildWebSearchPlan(diagnosedPrompt);
   const relevantNews: WebSearchResult = {
     title: "U.S. Congress advances a major bill",
-    url: "https://news.example.com/congress",
-    snippet: "News coverage of today's vote and its national impact.",
-    publishedAt: null,
+    url: "https://apnews.com/article/congress-vote",
+    snippet: "Lawmakers approved the measure in Washington.",
+    publishedAt: recentDate,
   };
   const unrelatedAmericanPage: WebSearchResult = {
     title: "A guide to American historic landmarks",
     url: "https://guide.example.com/landmarks",
     snippet: "Visitor information for parks and monuments.",
-    publishedAt: null,
+    publishedAt: recentDate,
+  };
+  const datedNewsSiteGuide: WebSearchResult = {
+    title: "A guide to America's historic landmarks",
+    url: "https://apnews.com/article/travel-landmarks",
+    snippet: "Visitor information for parks and monuments.",
+    publishedAt: recentDate,
   };
   const unrelatedForeignNews: WebSearchResult = {
-    title: "Breaking news from Canada",
-    url: "https://news.example.ca/canada",
-    snippet: "A report on today's national developments.",
-    publishedAt: null,
+    title: "Canada's parliament votes on a budget",
+    url: "https://www.reuters.com/world/canada/budget-vote/",
+    snippet: "Lawmakers approved a national spending measure.",
+    publishedAt: recentDate,
   };
   const lowercasePronounNews: WebSearchResult = {
-    title: "World news: tell us what you think",
-    url: "https://news.example.org/world",
-    snippet: "A report on international developments.",
+    title: "World leaders tell us what they think",
+    url: "https://www.reuters.com/world/global-summit/",
+    snippet: "Representatives gathered at an international summit.",
+    publishedAt: recentDate,
+  };
+  const staleTodayHeadline: WebSearchResult = {
+    title: "U.S. Senate acts today on a funding bill",
+    url: "https://www.reuters.com/world/us/old-senate-vote/",
+    snippet: "Lawmakers approved a measure in Washington.",
+    publishedAt: staleDate,
+  };
+  const undatedTodayHeadline: WebSearchResult = {
+    title: "U.S. Senate acts today on a funding bill",
+    url: "https://www.reuters.com/world/us/undated-senate-vote/",
+    snippet: "Lawmakers approved a measure in Washington.",
     publishedAt: null,
   };
 
@@ -88,8 +154,11 @@ test("does not require the literal word events, but rejects unrelated results", 
     rankRelevantSearchResults(
       [
         unrelatedAmericanPage,
+        datedNewsSiteGuide,
         unrelatedForeignNews,
         lowercasePronounNews,
+        staleTodayHeadline,
+        undatedTodayHeadline,
         relevantNews,
       ],
       subject,
@@ -102,21 +171,39 @@ test("reports parsed candidate counts and rejection categories without result te
   const { subject } = buildWebSearchPlan(diagnosedPrompt);
   const results: WebSearchResult[] = [
     {
-      title: "Events in America",
-      url: "https://example.com/events",
-      snippet: "Relevant event coverage in America.",
-      publishedAt: null,
+      title: "U.S. Senate passes funding bill",
+      url: "https://www.reuters.com/world/us/senate-vote/",
+      snippet: "Lawmakers approved the measure in Washington.",
+      publishedAt: recentDate,
     },
     {
-      title: "Events abroad",
-      url: "https://example.org/events",
-      snippet: "Events outside the requested location.",
-      publishedAt: null,
+      title: "Canada's parliament approves a budget",
+      url: "https://www.reuters.com/world/canada/budget-vote/",
+      snippet: "Lawmakers voted on a spending measure.",
+      publishedAt: recentDate,
     },
     {
-      title: "America updates",
-      url: "https://example.net/america",
-      snippet: "A current update.",
+      title: "A visit to American landmarks",
+      url: "https://guide.example.com/landmarks",
+      snippet: "Visitor information for parks and monuments.",
+      publishedAt: recentDate,
+    },
+    {
+      title: "A guide to America's historic landmarks",
+      url: "https://apnews.com/article/travel-landmarks",
+      snippet: "Visitor information for parks and monuments.",
+      publishedAt: recentDate,
+    },
+    {
+      title: "U.S. Senate votes today",
+      url: "https://www.reuters.com/world/us/old-vote/",
+      snippet: "Lawmakers cast their ballots.",
+      publishedAt: staleDate,
+    },
+    {
+      title: "U.S. Senate votes today",
+      url: "https://www.reuters.com/world/us/undated-vote/",
+      snippet: "Lawmakers cast their ballots.",
       publishedAt: null,
     },
     {
@@ -128,12 +215,16 @@ test("reports parsed candidate counts and rejection categories without result te
   ];
 
   assert.deepEqual(getRelevanceDiagnostics(results, subject), {
-    candidatesEnteringRelevanceScoring: 4,
-    acceptedAfterRelevance: 2,
+    candidatesEnteringRelevanceScoring: 7,
+    acceptedAfterRelevance: 1,
     rejectionCategories: {
       invalidUrl: 1,
       missingSubjectTerms: 1,
       missingContextTerms: 0,
+      missingNewsSourceContext: 1,
+      missingPublicationDate: 1,
+      outsideFreshnessWindow: 1,
+      evergreenContent: 1,
     },
   });
 });
@@ -163,6 +254,10 @@ test("reports missing context terms independently from missing subject terms", (
         invalidUrl: 0,
         missingSubjectTerms: 0,
         missingContextTerms: 1,
+        missingNewsSourceContext: 0,
+        missingPublicationDate: 0,
+        outsideFreshnessWindow: 0,
+        evergreenContent: 0,
       },
     },
   );
