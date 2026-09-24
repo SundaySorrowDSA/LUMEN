@@ -14,6 +14,14 @@ export type WebSearchResponse = {
   results: WebSearchResult[];
 };
 
+export type WebSearchDiagnostics = {
+  traceId?: string;
+  onSearchPlan?: (plan: {
+    normalizedQuery: string;
+    searchQueries: string[];
+  }) => void;
+};
+
 export type SearchSubject = {
   terms: string[];
   searchPhrase: string;
@@ -285,10 +293,14 @@ function logBingAttemptFailure(
     parsedRssItemCount: number | null;
     failureStage: "request" | "http" | "rss_parse";
     error?: unknown;
+    assistantTraceId?: string;
   },
 ): void {
   logger.warn(
     {
+      ...(fields.assistantTraceId
+        ? { assistantTraceId: fields.assistantTraceId }
+        : {}),
       searchPhrase,
       httpStatus: fields.httpStatus,
       parsedRssItemCount: fields.parsedRssItemCount,
@@ -323,6 +335,7 @@ function parseBingRss(xml: string): WebSearchResult[] {
 async function fetchBingRss(
   query: string,
   subject: SearchSubject,
+  traceId?: string,
 ): Promise<WebSearchResult[]> {
   let response: Response;
   try {
@@ -342,6 +355,7 @@ async function fetchBingRss(
       parsedRssItemCount: 0,
       failureStage: "request",
       error,
+      assistantTraceId: traceId,
     });
     throw error;
   }
@@ -351,6 +365,7 @@ async function fetchBingRss(
       httpStatus: response.status,
       parsedRssItemCount: 0,
       failureStage: "http",
+      assistantTraceId: traceId,
     });
     throw new Error(`Web search returned ${response.status} ${response.statusText}`);
   }
@@ -365,12 +380,14 @@ async function fetchBingRss(
       parsedRssItemCount: null,
       failureStage: "rss_parse",
       error,
+      assistantTraceId: traceId,
     });
     throw error;
   }
 
   logger.info(
     {
+      ...(traceId ? { assistantTraceId: traceId } : {}),
       searchPhrase: query,
       httpStatus: response.status,
       parsedRssItemCount: results.length,
@@ -381,12 +398,16 @@ async function fetchBingRss(
   return results;
 }
 
-export async function searchWeb(query: string): Promise<WebSearchResponse> {
+export async function searchWeb(
+  query: string,
+  diagnostics?: WebSearchDiagnostics,
+): Promise<WebSearchResponse> {
   const { normalizedQuery, subject, searchQueries } = buildWebSearchPlan(query);
   if (!normalizedQuery) throw new Error("Web search requires a non-empty query");
+  diagnostics?.onSearchPlan?.({ normalizedQuery, searchQueries });
 
   const batches = await Promise.all(searchQueries.map((searchQuery) =>
-    fetchBingRss(searchQuery, subject),
+    fetchBingRss(searchQuery, subject, diagnostics?.traceId),
   ));
   const results = rankRelevantSearchResults(batches.flat(), subject);
 
@@ -412,10 +433,14 @@ ${message}`;
 
 export async function resolveOptionalWebSearch(
   message: string,
-  search: (query: string) => Promise<WebSearchResponse> = searchWeb,
+  search: (
+    query: string,
+    diagnostics?: WebSearchDiagnostics,
+  ) => Promise<WebSearchResponse> = searchWeb,
+  diagnostics?: WebSearchDiagnostics,
 ) {
   try {
-    const webSearch = await search(message);
+    const webSearch = await search(message, diagnostics);
     return {
       webSearch,
       providerContent: buildWebSearchContext(message, webSearch),

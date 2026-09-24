@@ -32,6 +32,8 @@ import {
 import {
   requiresCurrentWebInformation,
   resolveOptionalWebSearch,
+  searchWeb,
+  type WebSearchResult,
 } from "../tools/web-search.js";
 import {
   buildCalculationContext,
@@ -52,6 +54,13 @@ import {
   runReminderTool,
 } from "../tools/reminders.js";
 import { shouldAutomaticallyConsultOpenAI } from "../tools/openai-consultation-policy.js";
+import {
+  ASSISTANT_TRACE_HEADER,
+  ASSISTANT_TRACE_VERSION,
+  redactAssistantTraceText,
+  resolveAssistantTraceId,
+  summarizeAssistantTraceError,
+} from "../lib/assistant-tracing.js";
 
 const router: IRouter = Router();
 const providerRouter = new ProviderRouter(process.env);
@@ -87,6 +96,18 @@ const OPENAI_CONSULTATION_TRIGGER = /\b(?:ask\s+chatgpt|consult\s+openai)\b/i;
 const OPENAI_CONSULTATION_QUESTION_LIMIT = 2_000;
 const OPENAI_CONSULTATION_CONTEXT_MESSAGES = 4;
 const OPENAI_CONSULTATION_CONTEXT_MESSAGE_LIMIT = 700;
+const TRACE_SOURCE_LIMIT = 5;
+
+function summarizeTraceSources(results: WebSearchResult[]) {
+  return results.slice(0, TRACE_SOURCE_LIMIT).map((result) => ({
+    title: redactAssistantTraceText(result.title, 160),
+    publishedAt: result.publishedAt
+      ? redactAssistantTraceText(result.publishedAt, 100)
+      : null,
+    url: redactAssistantTraceText(result.url, 500),
+    snippet: redactAssistantTraceText(result.snippet, 320),
+  }));
+}
 
 type OpenAIConsultation =
   | { requested: false }
@@ -417,10 +438,28 @@ router.delete("/assistant/conversations/:id", async (req, res) => {
 });
 
 router.post("/assistant/conversations/:id/messages", async (req, res) => {
+  const traceId = resolveAssistantTraceId(req.get(ASSISTANT_TRACE_HEADER));
+  res.setHeader(ASSISTANT_TRACE_HEADER, traceId);
+  const traceLog = req.log.child({
+    assistantTraceId: traceId,
+    assistantTraceVersion: ASSISTANT_TRACE_VERSION,
+  });
   const params = SendAssistantMessageParams.parse(req.params);
   const body = SendAssistantMessageBody.parse(req.body);
+  traceLog.info(
+    {
+      stage: "assistant_message_received",
+      conversationId: params.id,
+      messageLength: body.content.length,
+    },
+    "Assistant trace message received",
+  );
   const conversation = await getConversationWithMessages(params.id);
   if (!conversation) {
+    traceLog.warn(
+      { stage: "conversation_not_found", conversationId: params.id },
+      "Assistant trace conversation not found",
+    );
     res.status(404).json({ error: "Conversation not found" });
     return;
   }
@@ -445,12 +484,66 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     !workScheduleRequested &&
     !calculation &&
     requiresCurrentWebInformation(body.content);
+  const localToolHandled =
+    reminderRequested || workScheduleRequested || calculation !== null;
+  const explicitConsultationRequested =
+    OPENAI_CONSULTATION_TRIGGER.test(body.content);
+  traceLog.info(
+    {
+      stage: "routing_decision",
+      requestedProviderId: body.providerId ?? null,
+      activeProviderId,
+      reminderRequested,
+      workScheduleRequested,
+      calculationApplied: calculation !== null,
+      webSearchRequested,
+    },
+    "Assistant trace routing decision",
+  );
+
+  const searchStartedAt = Date.now();
+  let plannedSearchQueries: string[] = [];
   const webSearchOutcome = webSearchRequested
-    ? await resolveOptionalWebSearch(body.content)
+    ? await resolveOptionalWebSearch(body.content, searchWeb, {
+        traceId,
+        onSearchPlan: ({ normalizedQuery, searchQueries }) => {
+          plannedSearchQueries = searchQueries;
+          traceLog.info(
+            {
+              stage: "search_queries",
+              normalizedQuery: redactAssistantTraceText(normalizedQuery, 240),
+              searchQueries: searchQueries
+                .slice(0, TRACE_SOURCE_LIMIT)
+                .map((query) => redactAssistantTraceText(query, 240)),
+            },
+            "Assistant trace search queries planned",
+          );
+        },
+      })
     : { webSearch: null, providerContent: body.content, error: null };
+  if (webSearchRequested) {
+    traceLog.info(
+      {
+        stage: "search_completed",
+        durationMs: Date.now() - searchStartedAt,
+        plannedQueryCount: plannedSearchQueries.length,
+        resultCount: webSearchOutcome.webSearch?.results.length ?? 0,
+        sources: webSearchOutcome.webSearch
+          ? summarizeTraceSources(webSearchOutcome.webSearch.results)
+          : [],
+        ...(webSearchOutcome.error
+          ? { error: summarizeAssistantTraceError(webSearchOutcome.error) }
+          : {}),
+      },
+      "Assistant trace search completed",
+    );
+  }
   if (webSearchOutcome.error) {
-    req.log.warn(
-      { err: webSearchOutcome.error },
+    traceLog.warn(
+      {
+        stage: "search_unavailable_fallback",
+        error: summarizeAssistantTraceError(webSearchOutcome.error),
+      },
       "Optional web search failed; continuing with explicit unavailable-current-information context",
     );
   }
@@ -465,9 +558,8 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   if (reminder) {
     providerContent = buildReminderContext(body.content, reminder);
   }
-  const localToolHandled = reminderRequested || workScheduleRequested || calculation !== null;
   const automaticConsultationRequested =
-    !OPENAI_CONSULTATION_TRIGGER.test(body.content) &&
+    !explicitConsultationRequested &&
     shouldAutomaticallyConsultOpenAI({
       message: body.content,
       localToolHandled,
@@ -487,22 +579,109 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     automaticConsultationRequested,
     webSourceContext,
   );
+  const consultation = consultationResult.consultation;
+  const consultationCallReason = consultation.requested
+    ? explicitConsultationRequested
+      ? "explicit_request"
+      : automaticConsultationRequested
+        ? "automatic_policy_match"
+        : "consultation_requested"
+    : null;
+  const consultationSkipReason = consultation.requested
+    ? null
+    : localToolHandled
+      ? "local_tool_handled"
+      : webSearchRequested && !webSearch?.results.length
+        ? "no_successful_web_results"
+        : "automatic_policy_not_matched";
+  traceLog.info(
+    {
+      stage: "oracle_decision",
+      called: consultation.requested,
+      status: consultation.requested ? consultation.status : "skipped",
+      callReason: consultationCallReason,
+      skipReason: consultationSkipReason,
+      ...(consultation.requested && consultation.status === "failed"
+        ? { failureReason: consultation.reason }
+        : {}),
+      ...(consultation.requested && consultation.status === "completed"
+        ? {
+            model: consultation.model,
+            answerLength: consultation.answerLength,
+          }
+        : {}),
+      contextSourceCount:
+        automaticConsultationRequested && webSearch
+          ? Math.min(webSearch.results.length, 4)
+          : 0,
+    },
+    "Assistant trace Oracle decision",
+  );
   if (consultationResult.consultation.requested && consultationResult.consultation.status === "completed") {
     providerContent = `${providerContent}\n\n${consultationResult.providerContent.slice(body.content.length)}`;
   } else if (consultationResult.consultation.requested && consultationResult.consultation.status === "failed") {
     providerContent = `${providerContent}\n\n${consultationResult.providerContent.slice(body.content.length)}`;
   }
   const finalProviderId = consultationResult.consultation.requested ? "kindroid" : (body.providerId ?? activeProviderId);
-  const result = await providerRouter.complete({
-    requestedProvider: finalProviderId as ProviderId,
-    messages: conversation.messages
-      .filter((message) => message.role === "user" || message.role === "assistant")
-      .map((message) => ({
-        role: message.role as "user" | "assistant",
-        content: message.content,
-      }))
-      .concat({ role: "user", content: providerContent }),
-  });
+  const searchContextKind = webSearch
+    ? "search_results"
+    : webSearchRequested
+      ? "unavailable_current_information_fallback"
+      : localToolHandled
+        ? "local_tool_context"
+        : "user_message_only";
+  traceLog.info(
+    {
+      stage: "final_provider_request",
+      providerId: finalProviderId,
+      contextKind: searchContextKind,
+      searchQuery: webSearch
+        ? redactAssistantTraceText(webSearch.query, 240)
+        : null,
+      searchResultCount: webSearch?.results.length ?? 0,
+      searchSources: webSearch ? summarizeTraceSources(webSearch.results) : [],
+      oracleContextIncluded: consultation.requested,
+      oracleStatus: consultation.requested ? consultation.status : "skipped",
+    },
+    "Assistant trace final provider context",
+  );
+  const providerStartedAt = Date.now();
+  let result;
+  try {
+    result = await providerRouter.complete({
+      requestedProvider: finalProviderId as ProviderId,
+      messages: conversation.messages
+        .filter((message) => message.role === "user" || message.role === "assistant")
+        .map((message) => ({
+          role: message.role as "user" | "assistant",
+          content: message.content,
+        }))
+        .concat({ role: "user", content: providerContent }),
+    });
+  } catch (error) {
+    traceLog.error(
+      {
+        stage: "final_provider_error",
+        requestedProviderId: finalProviderId,
+        durationMs: Date.now() - providerStartedAt,
+        error: summarizeAssistantTraceError(error),
+      },
+      "Assistant trace final provider failed",
+    );
+    throw error;
+  }
+  traceLog.info(
+    {
+      stage: "final_provider_completed",
+      requestedProviderId: finalProviderId,
+      actualProviderId: result.providerId,
+      model: result.model,
+      mode: result.metadata.mode,
+      durationMs: Date.now() - providerStartedAt,
+      responseLength: result.content.length,
+    },
+    "Assistant trace final provider completed",
+  );
   const assistantContent = workSchedule
     ? ensureWorkScheduleResponseAccuracy(result.content, workSchedule)
     : result.content;
@@ -517,6 +696,14 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
       metadata: null,
     })
     .returning();
+  traceLog.info(
+    {
+      stage: "user_message_saved",
+      conversationId: params.id,
+      userMessageId: userMessage.id,
+    },
+    "Assistant trace user message saved",
+  );
   const [assistantMessage] = await db
     .insert(assistantMessagesTable)
     .values({
@@ -571,6 +758,15 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
       }),
     })
     .returning();
+  traceLog.info(
+    {
+      stage: "assistant_response_saved",
+      conversationId: params.id,
+      assistantMessageId: assistantMessage.id,
+      providerId: result.providerId,
+    },
+    "Assistant trace response saved",
+  );
 
   await db
     .update(assistantConversationsTable)

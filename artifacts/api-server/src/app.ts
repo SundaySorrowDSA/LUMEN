@@ -3,6 +3,11 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import {
+  ASSISTANT_TRACE_HEADER,
+  ASSISTANT_TRACE_VERSION,
+  resolveAssistantTraceId,
+} from "./lib/assistant-tracing.js";
 
 const app: Express = express();
 
@@ -25,6 +30,53 @@ app.use(
     },
   }),
 );
+
+logger.info(
+  { assistantTraceVersion: ASSISTANT_TRACE_VERSION },
+  "Assistant request tracing enabled",
+);
+
+app.use((req, res, next) => {
+  const path = req.originalUrl.split("?")[0];
+  const isAssistantMessage =
+    req.method === "POST" &&
+    /^\/api\/assistant\/conversations\/\d+\/messages$/.test(path);
+  const isAssistantThreadLoad =
+    req.method === "GET" &&
+    /^\/api\/assistant\/conversations\/\d+$/.test(path);
+
+  if (!isAssistantMessage && !isAssistantThreadLoad) {
+    next();
+    return;
+  }
+
+  const traceId = resolveAssistantTraceId(req.get(ASSISTANT_TRACE_HEADER));
+  req.headers[ASSISTANT_TRACE_HEADER] = traceId;
+  res.setHeader(ASSISTANT_TRACE_HEADER, traceId);
+
+  const startedAt = Date.now();
+  const traceLog = req.log.child({
+    assistantTraceId: traceId,
+    assistantTraceVersion: ASSISTANT_TRACE_VERSION,
+  });
+  traceLog.info(
+    { stage: "request_received", method: req.method, path },
+    "Assistant trace request received",
+  );
+  res.on("finish", () => {
+    traceLog.info(
+      {
+        stage: "http_response",
+        statusCode: res.statusCode,
+        durationMs: Date.now() - startedAt,
+      },
+      "Assistant trace HTTP response finished",
+    );
+  });
+
+  next();
+});
+
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

@@ -50,6 +50,42 @@ import {
 } from '@/lib/optimistic-messages';
 
 const queryClient = new QueryClient();
+const ASSISTANT_TRACE_HEADER = 'X-Assistant-Trace-ID';
+const ASSISTANT_TRACE_VERSION = 'assistant-trace-v1';
+
+function safeAssistantTraceError(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return { errorName: 'UnknownError' };
+  }
+
+  const value = error as {
+    name?: unknown;
+    message?: unknown;
+    status?: unknown;
+    method?: unknown;
+    url?: unknown;
+    headers?: Headers;
+  };
+  const url = typeof value.url === 'string' ? value.url.split('?')[0] : undefined;
+  const message = typeof value.message === 'string'
+    ? value.message
+      .replace(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]')
+      .replace(/\b(authorization|api[_ -]?key|token|secret|password)\b\s*[:=]\s*["']?[^"',\s;]+/gi, '$1=[REDACTED]')
+      .slice(0, 180)
+    : undefined;
+
+  return {
+    errorName: typeof value.name === 'string' ? value.name : 'UnknownError',
+    ...(typeof value.status === 'number' ? { status: value.status } : {}),
+    ...(typeof value.method === 'string' ? { method: value.method } : {}),
+    ...(url ? { path: url } : {}),
+    ...(value.headers instanceof Headers
+      ? { responseTraceId: value.headers.get(ASSISTANT_TRACE_HEADER) }
+      : {}),
+    ...(message ? { message } : {}),
+  };
+}
+
 const OptimisticMessagesContext = createContext<{
   optimisticMessages: OptimisticMessage[];
   setOptimisticMessages: Dispatch<SetStateAction<OptimisticMessage[]>>;
@@ -392,11 +428,18 @@ function Workspace() {
   const [showNew, setShowNew] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'list' | 'context' | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const assistantTraceIdRef = useRef<string | null>(null);
+  const assistantTraceHeadersRef = useRef<Record<string, string>>({});
   const selected = selectedId ?? overview?.activeConversationId ?? conversations[0]?.id ?? null;
-  const detailQuery = useGetAssistantConversation(selected ?? 0, { query: { enabled: !!selected, queryKey: getGetAssistantConversationQueryKey(selected ?? 0) } });
+  const detailQuery = useGetAssistantConversation(selected ?? 0, {
+    query: { enabled: !!selected, queryKey: getGetAssistantConversationQueryKey(selected ?? 0) },
+    request: { headers: assistantTraceHeadersRef.current },
+  });
   const createConversation = useCreateAssistantConversation();
   const deleteConversation = useDeleteAssistantConversation();
-  const sendMessage = useSendAssistantMessage();
+  const sendMessage = useSendAssistantMessage({
+    request: { headers: assistantTraceHeadersRef.current },
+  });
   const [isSubmittingMessage, setIsSubmittingMessage] = useState(false);
   const isThinking = isSubmittingMessage || sendMessage.isPending;
   const active = detailQuery.data;
@@ -465,12 +508,20 @@ function Workspace() {
   const submitMessage = () => {
     if (!selected || !composer.trim() || isThinking) return;
     const content = composer.trim();
+    const traceId = crypto.randomUUID();
+    assistantTraceIdRef.current = traceId;
+    assistantTraceHeadersRef.current[ASSISTANT_TRACE_HEADER] = traceId;
     const submittedAt = new Date().toISOString();
     const baselineMessageId = canonicalMessages.reduce(
       (latest, message) => Math.max(latest, message.id),
       0,
     );
     setComposer('');
+    console.info('[assistant-trace]', {
+      traceId,
+      traceVersion: ASSISTANT_TRACE_VERSION,
+      stage: 'browser_send_started',
+    });
     setOptimisticMessages((current) => [
       ...current,
       { conversationId: selected, content, submittedAt, baselineMessageId, status: 'pending' },
@@ -478,6 +529,16 @@ function Workspace() {
     setIsSubmittingMessage(true);
     sendMessage.mutate({ id: selected, data: { content } }, {
       onSuccess: (pair) => {
+        console.info('[assistant-trace]', {
+          traceId,
+          traceVersion: ASSISTANT_TRACE_VERSION,
+          stage: 'browser_send_completed',
+          status: 200,
+        });
+        if (assistantTraceIdRef.current === traceId) {
+          assistantTraceIdRef.current = null;
+          delete assistantTraceHeadersRef.current[ASSISTANT_TRACE_HEADER];
+        }
         const interactionTimestamp = pair.userMessage.createdAt;
         persistLastInteractionAt(interactionTimestamp);
         setLastInteractionAt(interactionTimestamp);
@@ -499,13 +560,37 @@ function Workspace() {
         qc.invalidateQueries({ queryKey: getListAssistantConversationsQueryKey() });
         qc.invalidateQueries({ queryKey: getGetAssistantOverviewQueryKey() });
       },
-      onError: () => {
+      onError: async (error) => {
+        console.error('[assistant-trace]', {
+          traceId,
+          traceVersion: ASSISTANT_TRACE_VERSION,
+          stage: 'browser_send_error',
+          error: safeAssistantTraceError(error),
+        });
         setOptimisticMessages((current) => current.map((message) => (
           message.conversationId === selected && message.submittedAt === submittedAt
             ? { ...message, status: 'failed' }
             : message
         )));
-        void detailQuery.refetch();
+        const refetchResult = await detailQuery.refetch();
+        if (refetchResult.isError) {
+          console.error('[assistant-trace]', {
+            traceId,
+            traceVersion: ASSISTANT_TRACE_VERSION,
+            stage: 'browser_thread_refetch_error',
+            error: safeAssistantTraceError(refetchResult.error),
+          });
+        } else {
+          console.info('[assistant-trace]', {
+            traceId,
+            traceVersion: ASSISTANT_TRACE_VERSION,
+            stage: 'browser_thread_refetch_completed',
+          });
+        }
+        if (assistantTraceIdRef.current === traceId) {
+          assistantTraceIdRef.current = null;
+          delete assistantTraceHeadersRef.current[ASSISTANT_TRACE_HEADER];
+        }
       },
       onSettled: () => setIsSubmittingMessage(false),
     });
