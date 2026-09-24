@@ -1,3 +1,5 @@
+import { logger } from "../lib/logger.js";
+
 export type WebSearchResult = {
   title: string;
   url: string;
@@ -131,11 +133,28 @@ function hostMatches(hostname: string, expectedHost: string): boolean {
 }
 
 export function scoreResult(result: WebSearchResult, subject: SearchSubject): number | null {
+  return evaluateSearchResult(result, subject).score;
+}
+
+type RelevanceRejectionCategory =
+  | "invalidUrl"
+  | "missingSubjectTerms"
+  | "missingContextTerms";
+
+type RelevanceEvaluation = {
+  score: number | null;
+  rejectionCategories: RelevanceRejectionCategory[];
+};
+
+function evaluateSearchResult(
+  result: WebSearchResult,
+  subject: SearchSubject,
+): RelevanceEvaluation {
   let hostname: string;
   try {
     hostname = new URL(result.url).hostname.toLowerCase();
   } catch {
-    return null;
+    return { score: null, rejectionCategories: ["invalidUrl"] };
   }
 
   const title = result.title.toLowerCase();
@@ -147,7 +166,12 @@ export function scoreResult(result: WebSearchResult, subject: SearchSubject): nu
     subject.contextTerms.length === 0 ||
     subject.contextTerms.some((term) => searchableText.includes(term));
 
-  if (!authoritative && (!hasSubject || !hasContext)) return null;
+  const rejectionCategories: RelevanceRejectionCategory[] = [];
+  if (!authoritative && !hasSubject) rejectionCategories.push("missingSubjectTerms");
+  if (!authoritative && !hasContext) rejectionCategories.push("missingContextTerms");
+  if (rejectionCategories.length > 0) {
+    return { score: null, rejectionCategories };
+  }
 
   let score = authoritative ? 100 : 0;
   score += matchedTerms.length * 20;
@@ -157,7 +181,33 @@ export function scoreResult(result: WebSearchResult, subject: SearchSubject): nu
   if (/\b(news|update|announcement|release|launch)\b/i.test(`${result.title} ${result.snippet}`)) {
     score += 5;
   }
-  return score;
+  return { score, rejectionCategories: [] };
+}
+
+export function getRelevanceDiagnostics(
+  results: WebSearchResult[],
+  subject: SearchSubject,
+) {
+  const rejectionCategories: Record<RelevanceRejectionCategory, number> = {
+    invalidUrl: 0,
+    missingSubjectTerms: 0,
+    missingContextTerms: 0,
+  };
+  let acceptedAfterRelevance = 0;
+
+  for (const result of results) {
+    const evaluation = evaluateSearchResult(result, subject);
+    if (evaluation.score !== null) acceptedAfterRelevance += 1;
+    for (const category of evaluation.rejectionCategories) {
+      rejectionCategories[category] += 1;
+    }
+  }
+
+  return {
+    candidatesEnteringRelevanceScoring: results.length,
+    acceptedAfterRelevance,
+    rejectionCategories,
+  };
 }
 
 export function buildWebSearchPlan(query: string) {
@@ -190,22 +240,39 @@ export function rankRelevantSearchResults(
     .slice(0, 5);
 }
 
-async function fetchBingRss(query: string): Promise<WebSearchResult[]> {
-  const response = await fetch(
-    `https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`,
-    {
-      headers: {
-        Accept: "application/rss+xml, application/xml, text/xml",
-        "User-Agent": "Lumen/1.0",
-      },
-      signal: AbortSignal.timeout(20_000),
-    },
-  );
-  if (!response.ok) {
-    throw new Error(`Web search returned ${response.status} ${response.statusText}`);
-  }
+function errorType(error: unknown): string {
+  return error instanceof Error ? error.name : "UnknownError";
+}
 
-  const xml = await response.text();
+function logBingAttemptFailure(
+  searchPhrase: string,
+  fields: {
+    httpStatus: number | null;
+    parsedRssItemCount: number | null;
+    failureStage: "request" | "http" | "rss_parse";
+    error?: unknown;
+  },
+): void {
+  logger.warn(
+    {
+      searchPhrase,
+      httpStatus: fields.httpStatus,
+      parsedRssItemCount: fields.parsedRssItemCount,
+      candidatesEnteringRelevanceScoring: 0,
+      acceptedAfterRelevance: 0,
+      rejectionCategories: {
+        invalidUrl: 0,
+        missingSubjectTerms: 0,
+        missingContextTerms: 0,
+      },
+      failureStage: fields.failureStage,
+      ...(fields.error ? { errorType: errorType(fields.error) } : {}),
+    },
+    "Bing RSS search attempt diagnostics",
+  );
+}
+
+function parseBingRss(xml: string): WebSearchResult[] {
   return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
     .map((match) => {
       const item = match[1];
@@ -219,11 +286,74 @@ async function fetchBingRss(query: string): Promise<WebSearchResult[]> {
     .filter((result): result is WebSearchResult => Boolean(result));
 }
 
+async function fetchBingRss(
+  query: string,
+  subject: SearchSubject,
+): Promise<WebSearchResult[]> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`,
+      {
+        headers: {
+          Accept: "application/rss+xml, application/xml, text/xml",
+          "User-Agent": "Lumen/1.0",
+        },
+        signal: AbortSignal.timeout(20_000),
+      },
+    );
+  } catch (error) {
+    logBingAttemptFailure(query, {
+      httpStatus: null,
+      parsedRssItemCount: 0,
+      failureStage: "request",
+      error,
+    });
+    throw error;
+  }
+
+  if (!response.ok) {
+    logBingAttemptFailure(query, {
+      httpStatus: response.status,
+      parsedRssItemCount: 0,
+      failureStage: "http",
+    });
+    throw new Error(`Web search returned ${response.status} ${response.statusText}`);
+  }
+
+  let results: WebSearchResult[];
+  try {
+    const xml = await response.text();
+    results = parseBingRss(xml);
+  } catch (error) {
+    logBingAttemptFailure(query, {
+      httpStatus: response.status,
+      parsedRssItemCount: null,
+      failureStage: "rss_parse",
+      error,
+    });
+    throw error;
+  }
+
+  logger.info(
+    {
+      searchPhrase: query,
+      httpStatus: response.status,
+      parsedRssItemCount: results.length,
+      ...getRelevanceDiagnostics(results, subject),
+    },
+    "Bing RSS search attempt diagnostics",
+  );
+  return results;
+}
+
 export async function searchWeb(query: string): Promise<WebSearchResponse> {
   const { normalizedQuery, subject, searchQueries } = buildWebSearchPlan(query);
   if (!normalizedQuery) throw new Error("Web search requires a non-empty query");
 
-  const batches = await Promise.all(searchQueries.map(fetchBingRss));
+  const batches = await Promise.all(searchQueries.map((searchQuery) =>
+    fetchBingRss(searchQuery, subject),
+  ));
   const results = rankRelevantSearchResults(batches.flat(), subject);
 
   if (results.length === 0) {
