@@ -352,19 +352,32 @@ function LoadingLines({ count = 4 }: { count?: number }) {
 
 function useViewportHeight() {
   useEffect(() => {
-    const updateViewportHeight = () => {
-      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-      document.documentElement.style.setProperty('--app-viewport-height', `${viewportHeight}px`);
-    };
+    const root = document.documentElement;
     const visualViewport = window.visualViewport;
+    let unfocusedHeight = visualViewport?.height ?? window.innerHeight;
+    const updateViewportHeight = () => {
+      const viewportHeight = visualViewport?.height ?? window.innerHeight;
+      const composerFocused = document.activeElement?.getAttribute('data-testid') === 'input-message-composer';
+      if (!composerFocused) unfocusedHeight = Math.max(unfocusedHeight, viewportHeight);
+      const keyboardOpen = composerFocused && window.innerWidth < 640 &&
+        unfocusedHeight - viewportHeight > 120;
+      root.style.setProperty('--app-viewport-height', `${viewportHeight}px`);
+      root.style.setProperty('--app-viewport-offset-top', `${visualViewport?.offsetTop ?? 0}px`);
+      root.classList.toggle('composer-keyboard-open', keyboardOpen);
+    };
     updateViewportHeight();
     window.addEventListener('resize', updateViewportHeight);
+    document.addEventListener('focusin', updateViewportHeight);
+    document.addEventListener('focusout', updateViewportHeight);
     visualViewport?.addEventListener('resize', updateViewportHeight);
     visualViewport?.addEventListener('scroll', updateViewportHeight);
     return () => {
       window.removeEventListener('resize', updateViewportHeight);
+      document.removeEventListener('focusin', updateViewportHeight);
+      document.removeEventListener('focusout', updateViewportHeight);
       visualViewport?.removeEventListener('resize', updateViewportHeight);
       visualViewport?.removeEventListener('scroll', updateViewportHeight);
+      root.classList.remove('composer-keyboard-open');
     };
   }, []);
 }
@@ -401,7 +414,7 @@ function AppShell({ children }: { children: ReactNode }) {
       </aside>
       <div className="md:pl-[250px]">{children}</div>
       <div className="fixed right-4 top-4 z-30 md:hidden"><NotificationControl compact /></div>
-      <div className="fixed inset-x-0 bottom-0 z-30 min-h-[var(--mobile-nav-height)] border-t border-border bg-background/95 px-3 pb-[env(safe-area-inset-bottom)] pt-2 backdrop-blur md:hidden">
+      <div className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-30 min-h-[var(--mobile-nav-height)] border-t border-border bg-background/95 px-3 pb-[env(safe-area-inset-bottom)] pt-2 backdrop-blur md:hidden">
         <nav className="mx-auto flex max-w-md justify-around">
           {nav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} data-testid={`link-mobile-${label.toLowerCase()}`} className={`flex flex-col items-center gap-1 px-5 py-1 text-[10px] ${location === href ? 'text-primary' : 'text-muted-foreground'}`}><Icon size={18} /><span>{label}</span></Link>)}
         </nav>
@@ -430,6 +443,7 @@ function Workspace() {
   const [mobilePanel, setMobilePanel] = useState<'list' | 'context' | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const keepLatestVisibleRef = useRef(false);
   const assistantTraceIdRef = useRef<string | null>(null);
   const assistantTraceHeadersRef = useRef<Record<string, string>>({});
   const selected = selectedId ?? overview?.activeConversationId ?? conversations[0]?.id ?? null;
@@ -470,6 +484,22 @@ function Workspace() {
     const messages = messagesRef.current;
     if (messages) messages.scrollTop = messages.scrollHeight;
   }, [displayedMessages.length, isThinking]);
+
+  useEffect(() => {
+    const messages = messagesRef.current;
+    if (!messages) return;
+    let previousHeight = messages.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const height = messages.clientHeight;
+      if (height < previousHeight && keepLatestVisibleRef.current &&
+          document.activeElement === composerRef.current && window.innerWidth < 640) {
+        messages.scrollTop = messages.scrollHeight;
+      }
+      previousHeight = height;
+    });
+    observer.observe(messages);
+    return () => observer.disconnect();
+  }, []);
 
   useLayoutEffect(() => {
     const textarea = composerRef.current;
@@ -611,7 +641,7 @@ function Workspace() {
       onSettled: () => setIsSubmittingMessage(false),
     });
   };
-  return <div className="h-[calc(var(--app-viewport-height)-var(--mobile-nav-height))] min-h-0 overflow-hidden md:h-auto md:min-h-screen">
+  return <div className="workspace-viewport h-[calc(var(--app-viewport-height)-var(--mobile-nav-height))] min-h-0 overflow-hidden md:h-auto md:min-h-screen">
     <div className="flex h-16 items-center justify-between border-b border-border px-5 sm:px-8 lg:px-12">
       <div className="flex items-center gap-3"><div className="h-2 w-2 rounded-full bg-[hsl(var(--chart-3))] shadow-[0_0_0_4px_hsl(var(--chart-3)/.12)]" /><span className="font-mono text-[10px] uppercase tracking-[.18em] text-muted-foreground">Ready when you are</span></div>
        <div className="flex items-center gap-3"><span className="hidden text-xs text-muted-foreground sm:inline">{overview?.model ?? 'Assistant'} <span className="mx-1 text-border">/</span> {overview?.modelStatus ?? 'standby'}</span><button aria-label="Open help" title="Help" className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" data-testid="button-help"><CircleHelp size={17} /></button></div>
@@ -630,13 +660,19 @@ function Workspace() {
          <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 sm:px-8 lg:px-14">
             {!selected ? <div className="flex h-full min-h-[420px] flex-col items-center justify-center text-center"><div className="mb-5 flex h-16 w-16 items-center justify-center rounded-lg border border-accent/40 bg-accent/10 text-primary"><Sparkles size={25} strokeWidth={1.4} /></div><h2 className="font-serif text-3xl">A clear place to begin.</h2><p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">Choose a thread or open a new one. Lumen is here to think alongside you.</p><button onClick={() => setShowNew(true)} className="mt-6 flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm text-primary-foreground transition-transform hover:-translate-y-0.5" data-testid="button-empty-new-conversation"><Plus size={15} /> Start a thread</button></div> : detailQuery.isLoading ? <div className="mx-auto max-w-2xl pt-8"><LoadingLines count={7} /></div> : detailQuery.isError ? <div className="mx-auto mt-10 max-w-sm rounded-lg border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="text-sm font-medium text-destructive">This thread could not be opened.</p><button onClick={() => detailQuery.refetch()} className="mt-3 text-xs underline" data-testid="button-retry-conversation">Try again</button></div> : displayedMessages.length === 0 ? <div className="mx-auto flex min-h-[400px] max-w-xl flex-col items-center justify-center text-center"><div className="mb-5 font-mono text-[10px] uppercase tracking-[.2em] text-accent">New thread</div><h2 className="font-serif text-4xl">What should we hold today?</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">Ask for a considered answer, a web search, or a small action. You stay in control.</p><div className="mt-8 grid grid-cols-1 gap-2 text-left sm:grid-cols-3"><button onClick={() => setComposer('Help me make sense of something I am working through')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-clarify">Make sense of something</button><button onClick={() => setComposer('Research this topic and bring me the useful details')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-research">Research a topic</button><button onClick={() => setComposer('Help me plan the next steps for a project')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-plan">Plan next steps</button></div></div> : <div className="mx-auto max-w-2xl space-y-8">{displayedMessages.map((message) => { const isOptimistic = 'optimistic' in message; return <div key={message.id} className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`} data-testid={`message-${message.id}`}><div className={`max-w-[88%] ${message.role === 'user' ? `rounded-lg rounded-br-md px-4 py-3 text-primary-foreground ${isOptimistic && message.status === 'failed' ? 'bg-destructive/80' : 'bg-primary'}` : 'pt-1'}`}><div className={`whitespace-pre-wrap text-[14px] leading-7 ${message.role === 'assistant' ? 'text-foreground/85' : ''}`}>{message.content}</div><div className={`mt-2 font-mono text-[9px] uppercase tracking-[.12em] ${message.role === 'user' ? 'text-primary-foreground/55' : 'text-muted-foreground'}`}>{isOptimistic ? (message.status === 'failed' ? 'Not sent · text preserved' : 'Sending…') : message.role === 'assistant' ? `${message.model ?? overview?.model ?? 'Lumen'} · ${formatDate(message.createdAt)}` : formatDate(message.createdAt)}</div>{isOptimistic && message.status === 'failed' && <div className="mt-3 flex gap-3 border-t border-white/20 pt-2 text-[11px] font-medium"><button type="button" className="underline underline-offset-2" onClick={() => { const restored = restoreFailedDraft(optimisticMessages, message.submittedAt); if (restored.composer !== null) setComposer(restored.composer); }} data-testid={`button-restore-${message.submittedAt}`}>Restore to composer</button><button type="button" className="text-primary-foreground/70 underline underline-offset-2" onClick={() => setOptimisticMessages((current) => dismissFailedDraft(current, message.submittedAt))} data-testid={`button-dismiss-${message.submittedAt}`}>Dismiss</button></div>}</div></div>; })}{isThinking && <div className="flex gap-4"><div className="flex items-center gap-2 pt-1 text-muted-foreground"><span className="flex gap-1"><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:120ms]" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:240ms]" /></span><span className="font-mono text-[10px] uppercase tracking-widest">Thinking</span></div></div>}</div>}
         </div>
-         <div className="shrink-0 border-t border-border bg-background/90 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur sm:px-8 lg:px-14">
+          <div className="message-composer-bar shrink-0 border-t border-border bg-background/90 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur sm:px-8 lg:px-14">
            <div className="mx-auto max-w-2xl">
               <div className="relative flex items-end gap-2 rounded-lg border border-border bg-card py-1 pr-1 shadow-lg shadow-black/50 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20 sm:block sm:py-0 sm:pr-0">
                <textarea
                   ref={composerRef}
                  value={composer}
                  onChange={(event) => setComposer(event.target.value)}
+                  onFocus={() => {
+                    const messages = messagesRef.current;
+                    keepLatestVisibleRef.current = !!messages &&
+                      messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
+                  }}
+                  onBlur={() => { keepLatestVisibleRef.current = false; }}
                  onKeyDown={(event) => {
                    if (event.key === 'Enter' && !event.shiftKey) {
                      event.preventDefault();

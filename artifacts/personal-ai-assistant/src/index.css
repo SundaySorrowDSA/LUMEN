@@ -224,6 +224,27 @@ body {
   min-height: var(--app-viewport-height);
 }
 
+@media (max-width: 639px) {
+  html.composer-keyboard-open {
+    --mobile-nav-height: 0px;
+  }
+
+  .composer-keyboard-open .workspace-viewport {
+    position: fixed;
+    top: var(--app-viewport-offset-top);
+    left: 0;
+    width: 100%;
+  }
+
+  .composer-keyboard-open .mobile-bottom-nav {
+    display: none;
+  }
+
+  .composer-keyboard-open .message-composer-bar {
+    padding-bottom: 0.75rem;
+  }
+}
+
 button, a, textarea, input, select {
   -webkit-tap-highlight-color: transparent;
 }
