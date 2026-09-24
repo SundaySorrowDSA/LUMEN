@@ -48,6 +48,20 @@ const SEARCH_STOP_WORDS = new Set([
   "your",
 ]);
 
+const BROAD_CURRENT_EVENTS_PATTERN =
+  /\b(?:current|latest|recent|today(?:['’]s)?)\s+events?\b/i;
+const AMERICA_LOCATION_PATTERN =
+  /\b(?:america|american|united states(?: of america)?|u\.s\.a?\.?|us|usa)(?=\b|[\s.,;:!?()'’"-]|$)/i;
+const AMERICA_LOCATION_TOKENS = new Set([
+  "america",
+  "american",
+  "united",
+  "states",
+  "us",
+  "usa",
+]);
+const BROAD_CURRENT_EVENTS_CONTEXT_TERMS = ["news", "event", "report", "update"];
+
 const CONVERSATIONAL_SEARCH_PREFIX =
   /^(?:(?:what\s+(?:are\s+your\s+thoughts|do\s+you\s+think)\s+(?:about|on))|(?:can\s+you\s+)?tell\s+me\s+about)\s+/i;
 
@@ -113,23 +127,37 @@ export function extractSearchSubject(query: string): SearchSubject {
   const explicitSubject =
     query.match(/\b(?:about|regarding)\s+(.+)$/i)?.[1] ??
     query.replace(/\b(?:latest|current|recent|today(?:['’]s)?|news|weather|forecast|price|score|update)\b/gi, " ");
-  const terms = [...new Set(
+  const broadCurrentEvents = BROAD_CURRENT_EVENTS_PATTERN.test(query);
+  const extractedTerms = [...new Set(
     explicitSubject
       .toLowerCase()
       .match(/[a-z0-9][a-z0-9'-]*/g)
       ?.filter((term) => term.length > 2 && !SEARCH_STOP_WORDS.has(term)) ?? [],
   )].slice(0, 4);
+  const terms = broadCurrentEvents
+    ? extractedTerms.filter((term) => term !== "event" && term !== "events")
+    : extractedTerms;
+  if (AMERICA_LOCATION_PATTERN.test(explicitSubject)) {
+    const nonLocationTerms = terms.filter((term) => !AMERICA_LOCATION_TOKENS.has(term));
+    nonLocationTerms.unshift("america");
+    terms.splice(0, terms.length, ...nonLocationTerms);
+  }
 
   return {
     terms,
     searchPhrase: terms.join(" "),
     authoritativeHosts: [],
-    contextTerms: [],
+    contextTerms: broadCurrentEvents ? [...BROAD_CURRENT_EVENTS_CONTEXT_TERMS] : [],
   };
 }
 
 function hostMatches(hostname: string, expectedHost: string): boolean {
   return hostname === expectedHost || hostname.endsWith(`.${expectedHost}`);
+}
+
+function matchesSubjectTerm(searchableText: string, term: string): boolean {
+  if (term === "america") return AMERICA_LOCATION_PATTERN.test(searchableText);
+  return searchableText.includes(term);
 }
 
 export function scoreResult(result: WebSearchResult, subject: SearchSubject): number | null {
@@ -160,7 +188,7 @@ function evaluateSearchResult(
   const title = result.title.toLowerCase();
   const searchableText = `${result.title} ${result.snippet} ${hostname}`.toLowerCase();
   const authoritative = subject.authoritativeHosts.some((host) => hostMatches(hostname, host));
-  const matchedTerms = subject.terms.filter((term) => searchableText.includes(term));
+  const matchedTerms = subject.terms.filter((term) => matchesSubjectTerm(searchableText, term));
   const hasSubject = subject.terms.length === 0 || matchedTerms.length === subject.terms.length;
   const hasContext =
     subject.contextTerms.length === 0 ||
@@ -175,7 +203,7 @@ function evaluateSearchResult(
 
   let score = authoritative ? 100 : 0;
   score += matchedTerms.length * 20;
-  score += subject.terms.filter((term) => title.includes(term)).length * 20;
+  score += subject.terms.filter((term) => matchesSubjectTerm(title, term)).length * 20;
   score += subject.contextTerms.filter((term) => title.includes(term)).length * 5;
   if (result.publishedAt) score += 5;
   if (/\b(news|update|announcement|release|launch)\b/i.test(`${result.title} ${result.snippet}`)) {

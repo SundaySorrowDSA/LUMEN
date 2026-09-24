@@ -34,27 +34,57 @@ test("builds the diagnosed query around current events in America", () => {
   const plan = buildWebSearchPlan(diagnosedPrompt);
 
   assert.equal(plan.normalizedQuery, "current events in America");
-  assert.deepEqual(plan.subject.terms, ["events", "america"]);
-  assert.equal(plan.subject.searchPhrase, "events america");
-  assert.ok(plan.searchQueries.includes("current events in America"));
+  assert.deepEqual(plan.subject.terms, ["america"]);
+  assert.equal(plan.subject.searchPhrase, "america");
+  assert.deepEqual(plan.subject.contextTerms, ["news", "event", "report", "update"]);
+  assert.deepEqual(plan.searchQueries, [
+    "current events in America",
+    "america current events in America",
+  ]);
 });
 
-test("accepts search results relevant to current events in America", () => {
+test("accepts relevant current U.S. news across common America spellings", () => {
   const { subject } = buildWebSearchPlan(diagnosedPrompt);
-  const relevant: WebSearchResult = {
-    title: "Current events across America today",
-    url: "https://example.com/america-current-events",
-    snippet: "A roundup of major events affecting people across America.",
-    publishedAt: "Thu, 24 Sep 2026 12:00:00 GMT",
+  const relevant = ["America", "American", "US", "U.S.", "United States"].map(
+    (location, index): WebSearchResult => ({
+      title: `${location} headlines`,
+      url: `https://news${index}.example.com/story`,
+      snippet: "News coverage of a major national development.",
+      publishedAt: null,
+    }),
+  );
+
+  assert.deepEqual(rankRelevantSearchResults(relevant, subject), relevant);
+});
+
+test("does not require the literal word events, but rejects unrelated results", () => {
+  const { subject } = buildWebSearchPlan(diagnosedPrompt);
+  const relevantNews: WebSearchResult = {
+    title: "U.S. Congress advances a major bill",
+    url: "https://news.example.com/congress",
+    snippet: "News coverage of today's vote and its national impact.",
+    publishedAt: null,
   };
-  const unrelated: WebSearchResult = {
-    title: "A guide to thoughtful conversation",
-    url: "https://example.org/conversation",
-    snippet: "How to share your thoughts with others.",
+  const unrelatedAmericanPage: WebSearchResult = {
+    title: "A guide to American historic landmarks",
+    url: "https://guide.example.com/landmarks",
+    snippet: "Visitor information for parks and monuments.",
+    publishedAt: null,
+  };
+  const unrelatedForeignNews: WebSearchResult = {
+    title: "Breaking news from Canada",
+    url: "https://news.example.ca/canada",
+    snippet: "A report on today's national developments.",
     publishedAt: null,
   };
 
-  assert.deepEqual(rankRelevantSearchResults([unrelated, relevant], subject), [relevant]);
+  assert.deepEqual(
+    rankRelevantSearchResults(
+      [unrelatedAmericanPage, unrelatedForeignNews, relevantNews],
+      subject,
+    ),
+    [relevantNews],
+  );
 });
 
 test("reports parsed candidate counts and rejection categories without result text", () => {
