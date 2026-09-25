@@ -14,3 +14,17 @@ mtime_ms = 1790257568732
 storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/d6a495d0-5709-4f1a-a929-b1f4f3506827/2714ccaf-d8a4-4186-acc2-d11cefc62ef7"
 storage_version_token = "1790257574637719"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "hwgTFxuJqm6L4errxsnsE"
+uri = "file://exports/personal-ai-assistant-source.zip"
+type = "unspecified"
+title = "Personal AI Assistant source ZIP"
+description = "Current frontend, API server, shared libraries, tests, assets, and pnpm configuration; excludes secrets, dependencies, build output, and user data."
+logical_id = "fd3298cd-92ed-4663-bf59-bd12161f7577"
+content_hash = "sha256:7a2a14ef57bb651e895ae59f1e4d731c28f092417829f48c930d0222d0b59d5a"
+size = 221726
+mtime_ms = 1790347116024
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/fd3298cd-92ed-4663-bf59-bd12161f7577/72eb8a49-db17-4d20-ad3f-dd33cebc6510"
+storage_version_token = "1790347207264489"
+content_type = "application/octet-stream"
