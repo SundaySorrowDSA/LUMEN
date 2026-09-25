@@ -7,8 +7,13 @@
  */
 
 export interface AssistantMessageInput {
-  /** @minLength 1 */
+  /** Question or message text; may be empty when a photo is attached. */
   content: string;
+  /**
+     * One resized JPEG, PNG, or WebP photo as a base64 data URL. Never persisted.
+     * @maxLength 2800000
+     */
+  photoDataUrl?: string;
   /** @nullable */
   providerId?: string | null;
 }

@@ -1,5 +1,6 @@
 import {
   createContext,
+  type ChangeEvent,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
@@ -15,7 +16,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
 import {
-  Activity, Archive, ArrowUp, Bell, Brain, Check, ChevronRight, CircleHelp, Cloud,
+  Activity, Archive, ArrowUp, Bell, Brain, Camera, Check, ChevronRight, CircleHelp, Cloud,
   Ellipsis, FileText, FolderOpen, Globe2, Link2, Loader2,
   MessageSquare, Plus, Settings2, ShieldCheck, Sparkles,
   Trash2, Waypoints, Wifi, X, Zap,
@@ -49,6 +50,7 @@ import {
   restoreFailedDraft,
   type OptimisticMessage,
 } from '@/lib/optimistic-messages';
+import { resizePhoto } from '@/lib/photo';
 
 const queryClient = new QueryClient();
 const ASSISTANT_TRACE_HEADER = 'X-Assistant-Trace-ID';
@@ -438,6 +440,11 @@ function Workspace() {
   const conversations = conversationsQuery.data ?? [];
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [composer, setComposer] = useState('');
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [photoProcessing, setPhotoProcessing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const photoPickVersionRef = useRef(0);
   const [newTitle, setNewTitle] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'list' | 'context' | null>(null);
@@ -551,9 +558,37 @@ function Workspace() {
       },
     });
   };
+  const selectPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const version = ++photoPickVersionRef.current;
+    setPhoto(null);
+    setPhotoProcessing(true);
+    setPhotoError(null);
+    try {
+      const resized = await resizePhoto(file);
+      if (version === photoPickVersionRef.current) setPhoto(resized);
+    } catch (error) {
+      if (version === photoPickVersionRef.current) {
+        setPhotoError(error instanceof Error ? error.message : 'This photo could not be processed.');
+      }
+    } finally {
+      if (version === photoPickVersionRef.current) setPhotoProcessing(false);
+    }
+  };
+  const removePhoto = () => {
+    photoPickVersionRef.current += 1;
+    setPhoto(null);
+    setPhotoError(null);
+    setPhotoProcessing(false);
+  };
   const submitMessage = () => {
-    if (!selected || !composer.trim() || isThinking) return;
+    if (!selected || (!composer.trim() && !photo) || isThinking || photoProcessing) return;
     const content = composer.trim();
+    const photoDataUrl = photo;
+    const displayContent = photoDataUrl ? `[Photo attached]${content ? `\n${content}` : ''}` : content;
+    setPhotoError(null);
     const traceId = crypto.randomUUID();
     assistantTraceIdRef.current = traceId;
     assistantTraceHeadersRef.current[ASSISTANT_TRACE_HEADER] = traceId;
@@ -562,7 +597,7 @@ function Workspace() {
       (latest, message) => Math.max(latest, message.id),
       0,
     );
-    setComposer('');
+    if (!photoDataUrl) setComposer('');
     console.info('[assistant-trace]', {
       traceId,
       traceVersion: ASSISTANT_TRACE_VERSION,
@@ -570,11 +605,15 @@ function Workspace() {
     });
     setOptimisticMessages((current) => [
       ...current,
-      { conversationId: selected, content, submittedAt, baselineMessageId, status: 'pending' },
+      { conversationId: selected, content: displayContent, submittedAt, baselineMessageId, status: 'pending' },
     ]);
     setIsSubmittingMessage(true);
-    sendMessage.mutate({ id: selected, data: { content } }, {
+    sendMessage.mutate({ id: selected, data: { content, ...(photoDataUrl ? { photoDataUrl } : {}) } }, {
       onSuccess: (pair) => {
+        if (photoDataUrl) {
+          setPhoto(null);
+          setComposer('');
+        }
         console.info('[assistant-trace]', {
           traceId,
           traceVersion: ASSISTANT_TRACE_VERSION,
@@ -613,11 +652,27 @@ function Workspace() {
           stage: 'browser_send_error',
           error: safeAssistantTraceError(error),
         });
-        setOptimisticMessages((current) => current.map((message) => (
-          message.conversationId === selected && message.submittedAt === submittedAt
-            ? { ...message, status: 'failed' }
-            : message
-        )));
+        if (photoDataUrl) {
+          const status = error && typeof error === 'object' && 'status' in error ? error.status : null;
+          setPhotoError(
+            status === 502
+              ? 'Photo analysis failed. The photo was not analyzed or saved. Please try again.'
+              : status === 400 || status === 413
+                ? 'The photo was rejected. Please choose a smaller supported image.'
+                : status === 503
+                  ? 'Photo analysis or Ren is unavailable. The photo was not analyzed or saved.'
+                  : 'Photo message could not be confirmed. Check the conversation before retrying.',
+          );
+          setOptimisticMessages((current) => current.filter(
+            (message) => message.conversationId !== selected || message.submittedAt !== submittedAt,
+          ));
+        } else {
+          setOptimisticMessages((current) => current.map((message) => (
+            message.conversationId === selected && message.submittedAt === submittedAt
+              ? { ...message, status: 'failed' }
+              : message
+          )));
+        }
         const refetchResult = await detailQuery.refetch();
         if (refetchResult.isError) {
           console.error('[assistant-trace]', {
@@ -662,6 +717,10 @@ function Workspace() {
         </div>
           <div className="message-composer-bar shrink-0 border-t border-border bg-background/90 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur sm:px-8 lg:px-14">
            <div className="mx-auto max-w-2xl">
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" aria-label="Choose a photo" onChange={selectPhoto} data-testid="input-photo" />
+              {photo && <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-card/80 p-1.5 text-xs text-muted-foreground" data-testid="photo-preview"><img src={photo} alt="Selected photo preview" className="h-14 w-14 rounded-md object-cover" /><span className="flex-1">Photo ready to send</span><button type="button" onClick={removePhoto} disabled={isThinking} aria-label="Remove photo" className="rounded-md p-2 text-foreground hover:bg-muted disabled:opacity-50" data-testid="button-remove-photo"><X size={16} /></button></div>}
+              {photoProcessing && <p className="mb-2 text-xs text-muted-foreground" role="status">Preparing photo…</p>}
+              {photoError && <p className="mb-2 text-xs text-destructive" role="alert" data-testid="photo-error">{photoError}</p>}
               <div className="relative flex items-end gap-2 rounded-lg border border-border bg-card py-1 pr-1 shadow-lg shadow-black/50 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20 sm:block sm:py-0 sm:pr-0">
                <textarea
                   ref={composerRef}
@@ -686,13 +745,14 @@ function Workspace() {
                   className="min-h-10 min-w-0 max-h-36 flex-1 resize-none overflow-y-auto bg-transparent px-4 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed sm:min-h-[108px] sm:w-full sm:max-h-none sm:pb-12 sm:pt-3"
                  data-testid="input-message-composer"
                />
-                <div className="shrink-0 sm:absolute sm:inset-x-3 sm:bottom-2 sm:flex sm:items-center sm:justify-between sm:gap-3">
+                 <div className="flex shrink-0 items-center gap-1 sm:absolute sm:inset-x-3 sm:bottom-2 sm:justify-between sm:gap-3">
                   <span className="hidden truncate font-mono text-[9px] uppercase tracking-[.13em] text-muted-foreground/60 sm:inline">Enter to send · Shift + Enter for line break</span>
+                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={!selected || isThinking || photoProcessing} aria-label="Add photo" title="Take or choose a photo" className="flex h-10 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground disabled:opacity-30 sm:hidden" data-testid="button-add-photo"><Camera size={19} /></button>
                  <button
                    onClick={submitMessage}
                    aria-label="Send message"
                    title="Send message"
-                  disabled={!selected || !composer.trim() || isThinking}
+                   disabled={!selected || (!composer.trim() && !photo) || isThinking || photoProcessing}
                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-30"
                    data-testid="button-send-message"
                  >

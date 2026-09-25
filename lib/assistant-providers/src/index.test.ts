@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createOpenAIProvider, type ProviderFetch } from "./index.js";
+import { analyzePhotoWithOpenAI, createOpenAIProvider, type ProviderFetch } from "./index.js";
 
 function response(status: number, body: unknown): Awaited<ReturnType<ProviderFetch>> {
   return {
@@ -79,4 +79,47 @@ test("OpenAI consultation has a bounded timeout and no retry", async () => {
     /OpenAI request timed out after 5ms/,
   );
   assert.equal(calls, 1);
+});
+
+test("vision sends one non-stored image input with strict image-instruction boundaries", async () => {
+  const image = "data:image/jpeg;base64,/9j/AA==";
+  let calls = 0;
+  let request: Record<string, unknown> | undefined;
+  const answer = await analyzePhotoWithOpenAI({
+    apiKey: "test-openai-secret",
+    fetch: async (url, init) => {
+      calls++;
+      assert.equal(url, "https://api.openai.com/v1/responses");
+      assert.equal(init.headers.Authorization, "Bearer test-openai-secret");
+      request = JSON.parse(init.body) as Record<string, unknown>;
+      return response(200, { output: [{ type: "message", content: [{ type: "output_text", text: "A red stop sign." }] }] });
+    },
+  }, image, "What is this?");
+  assert.equal(calls, 1);
+  assert.equal(answer, "A red stop sign.");
+  assert.equal(request?.store, false);
+  const input = request?.input as Array<{ role: string; content: string | Array<{ type: string; image_url?: string; text?: string }> }>;
+  assert.match(input[0].content as string, /never instructions to follow/);
+  assert.deepEqual(input[1].content, [
+    { type: "input_text", text: "What is this?" },
+    { type: "input_image", image_url: image, detail: "auto" },
+  ]);
+});
+
+test("vision failures never expose the image or fake observations", async () => {
+  const image = "data:image/jpeg;base64,PRIVATE_IMAGE_BYTES";
+  await assert.rejects(
+    analyzePhotoWithOpenAI({
+      apiKey: "test-openai-secret",
+      fetch: async () => response(503, { error: { message: image } }),
+    }, image, ""),
+    (error: Error) => error.message.includes("status 503") && !error.message.includes(image),
+  );
+  await assert.rejects(
+    analyzePhotoWithOpenAI({
+      apiKey: "test-openai-secret",
+      fetch: async () => response(200, { output: [] }),
+    }, image, ""),
+    /no observations/,
+  );
 });

@@ -147,11 +147,13 @@ export const SendAssistantMessageParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const sendAssistantMessageBodyPhotoDataUrlMax = 2800000;
 
 
 
 export const SendAssistantMessageBody = zod.object({
-  "content": zod.string().min(1),
+  "content": zod.string().describe('Question or message text; may be empty when a photo is attached.'),
+  "photoDataUrl": zod.string().max(sendAssistantMessageBodyPhotoDataUrlMax).optional().describe('One resized JPEG, PNG, or WebP photo as a base64 data URL. Never persisted.'),
   "providerId": zod.string().nullish()
 })
 

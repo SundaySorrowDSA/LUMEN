@@ -24,6 +24,7 @@ import {
   db,
 } from "@workspace/db";
 import {
+  analyzePhotoWithOpenAI,
   createKindroidProvider,
   createOpenAIProvider,
   ProviderRouter,
@@ -55,6 +56,7 @@ import {
   runReminderTool,
 } from "../tools/reminders.js";
 import { shouldAutomaticallyConsultOpenAI } from "../tools/openai-consultation-policy.js";
+import { InvalidPhotoError, preparePhotoContext } from "../tools/photo-analysis.js";
 import {
   ASSISTANT_TRACE_HEADER,
   ASSISTANT_TRACE_VERSION,
@@ -446,7 +448,16 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     assistantTraceVersion: ASSISTANT_TRACE_VERSION,
   });
   const params = SendAssistantMessageParams.parse(req.params);
-  const body = SendAssistantMessageBody.parse(req.body);
+  const parsed = SendAssistantMessageBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid message or photo. Send one photo under 2 MB." });
+    return;
+  }
+  const body = parsed.data;
+  if (!body.content.trim() && !body.photoDataUrl) {
+    res.status(400).json({ error: "Enter a message or attach a photo." });
+    return;
+  }
   traceLog.info(
     {
       stage: "assistant_message_received",
@@ -463,6 +474,32 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     );
     res.status(404).json({ error: "Conversation not found" });
     return;
+  }
+
+  let photoContext: string | null = null;
+  if (body.photoDataUrl) {
+    if (!openAiApiKey || !kindroidApiKey || !kindroidAiId) {
+      res.status(503).json({ error: "Photo analysis and Ren are not configured. The photo was not analyzed." });
+      return;
+    }
+    try {
+      photoContext = await preparePhotoContext(body.photoDataUrl, body.content, (image, question) =>
+        analyzePhotoWithOpenAI({
+          apiKey: openAiApiKey,
+          baseUrl: openAiBaseUrl,
+          model: openAiModel,
+          fetch,
+        }, image, question));
+    } catch (error) {
+      const invalid = error instanceof InvalidPhotoError;
+      traceLog.warn({ stage: "photo_analysis_failed", reason: invalid ? "invalid_photo" : "vision_failed" }, "Photo message rejected before saving");
+      res.status(invalid ? 400 : 502).json({
+        error: invalid
+          ? error.message
+          : "Photo analysis failed. The photo was not sent to Ren or saved. Please try again.",
+      });
+      return;
+    }
   }
 
   const activeProviderId = await getActiveProviderId();
@@ -488,7 +525,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   const localToolHandled =
     reminderRequested || workScheduleRequested || calculation !== null;
   const explicitConsultationRequested =
-    OPENAI_CONSULTATION_TRIGGER.test(body.content);
+    !photoContext && OPENAI_CONSULTATION_TRIGGER.test(body.content);
   traceLog.info(
     {
       stage: "routing_decision",
@@ -566,6 +603,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     providerContent = buildReminderContext(body.content, reminder);
   }
   const automaticConsultationRequested =
+    !photoContext &&
     !explicitConsultationRequested &&
     shouldAutomaticallyConsultOpenAI({
       message: body.content,
@@ -580,12 +618,14 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
         )
         .join("\n\n")
     : undefined;
-  const consultationResult = await runOpenAIConsultation(
-    body.content,
-    conversation.messages,
-    automaticConsultationRequested,
-    webSourceContext,
-  );
+  const consultationResult = photoContext
+    ? { providerContent: body.content, consultation: { requested: false as const } }
+    : await runOpenAIConsultation(
+        body.content,
+        conversation.messages,
+        automaticConsultationRequested,
+        webSourceContext,
+      );
   const consultation = consultationResult.consultation;
   const consultationCallReason = consultation.requested
     ? explicitConsultationRequested
@@ -629,7 +669,10 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   } else if (consultationResult.consultation.requested && consultationResult.consultation.status === "failed") {
     providerContent = `${providerContent}\n\n${consultationResult.providerContent.slice(body.content.length)}`;
   }
-  const finalProviderId = consultationResult.consultation.requested ? "kindroid" : (body.providerId ?? activeProviderId);
+  if (photoContext) {
+    providerContent = `${providerContent.trim() || "[Photo attached]"}\n\n${photoContext}`;
+  }
+  const finalProviderId = photoContext || consultationResult.consultation.requested ? "kindroid" : (body.providerId ?? activeProviderId);
   const searchContextKind = webSearch
     ? "search_results"
     : webSearchOutcome.error instanceof InsufficientNewsEvidenceError
@@ -700,7 +743,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     .values({
       conversationId: params.id,
       role: "user",
-      content: body.content,
+      content: photoContext ? `[Photo attached]${body.content.trim() ? `\n${body.content.trim()}` : ""}` : body.content,
       model: null,
       metadata: null,
     })
@@ -725,6 +768,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
         route: result.metadata.routedBy,
         mode: result.metadata.mode,
         consultation: consultationResult.consultation,
+        photoAnalyzed: Boolean(photoContext),
         sources: webSearch?.results.map(({ title, url }) => ({ title, url })) ?? [],
         tools: [
           ...(webSearch

@@ -383,7 +383,11 @@ components:
       properties:
         content:
           type: string
-          minLength: 1
+          description: Question or message text; may be empty when a photo is attached.
+        photoDataUrl:
+          type: string
+          description: One resized JPEG, PNG, or WebP photo as a base64 data URL. Never persisted.
+          maxLength: 2800000
         providerId:
           type: ["string", "null"]
       required: [content]

@@ -78,6 +78,15 @@ app.use((req, res, next) => {
 });
 
 app.use(cors());
+// Allow one resized photo only on the message endpoint; all other JSON routes keep the default limit.
+const messageJson = express.json({ limit: "4mb" });
+app.use((req, res, next) => {
+  if (req.method === "POST" && /^\/api\/assistant\/conversations\/\d+\/messages$/.test(req.path)) {
+    messageJson(req, res, next);
+    return;
+  }
+  next();
+});
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
