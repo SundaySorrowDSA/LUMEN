@@ -1,0 +1,16 @@
+Diagnose and fix the inconsistent thumbnail behavior for images pasted from the clipboard in the Lumen chat composer.
+
+The screenshots show two different outcomes:
+
+* In the first screenshot, I pasted an image into the composer, sent it, and the image appeared in the conversation.
+* In the later screenshot, the message at 12:24 received a Ren reply, but the user message showed only “[Photo attached]” instead of its image.
+
+Treat the first result as proof that clipboard image paste can work. Investigate why the later send did not display its image. Do not assume this is a general clipboard-permission problem. The earlier automated test used the file picker, so it does not verify this clipboard-paste path.
+
+Trace the clipboard image through the existing flow: paste event, image preview, compression, send request, successful response, returned user-message ID, immediate bubble rendering, IndexedDB save, and lookup after refresh. Check that the compressed Blob is associated with the actual conversation ID and returned user-message ID for that send, and that the bubble uses the same IDs when looking it up. Pay special attention to differences between the successful and marker-only cases, including timing, temporary preview state, message-response handling, MIME type, and cleanup of object URLs or pending attachments.
+
+Use mocked send responses and local test images only. Do not send a live request to OpenAI, Kindroid, or another AI provider; do not mutate production or conversation data; and do not deploy.
+
+If you find a concrete bug, make the smallest targeted fix and add a regression test that exercises the actual clipboard paste handler through a mocked successful send. The test should verify that the image appears in the sent bubble, is saved under the returned message IDs, and remains available after a simulated refresh in the same browser context. Do not manually insert an IndexedDB record to make the test pass. Keep ordinary text paste and the existing file-picker flow working.
+
+If you cannot reproduce the iPhone result in the browser, say so clearly. Report what the test does and does not verify, and identify the next useful diagnostic step without claiming the issue is resolved.
