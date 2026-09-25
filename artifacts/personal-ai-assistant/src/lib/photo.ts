@@ -3,14 +3,47 @@ const MAX_UPLOAD_BYTES = 1_900_000;
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
 
 /** Only use image files supplied by the user's paste event; never read the clipboard independently. */
-export function imageFromPaste(clipboardData: Pick<DataTransfer, 'items' | 'files'>): File | null {
+export function imageFromPasteDetails(clipboardData: Pick<DataTransfer, 'items' | 'files'>): {
+  file: File;
+  representation: 'items' | 'files';
+} | null {
+  let unsupportedImage: { file: File; representation: 'items' | 'files' } | null = null;
   for (const item of Array.from(clipboardData.items ?? [])) {
-    if (item.kind === 'file' && item.type.startsWith('image/')) {
-      const file = item.getAsFile();
-      if (file) return file;
+    if (item.kind !== 'file') continue;
+    let file: File | null;
+    try {
+      file = item.getAsFile();
+    } catch {
+      continue;
     }
+    if (!file) continue;
+    const fileType = file.type.toLowerCase();
+    const itemType = item.type.toLowerCase();
+    const imageType = fileType.startsWith('image/') ? fileType : itemType;
+    if (!imageType.startsWith('image/')) continue;
+    const candidate = {
+      // Safari can expose an image item whose File has no MIME type. Give the
+      // common compressor a typed File without changing the image bytes.
+      file: fileType === imageType ? file : new File([file], file.name || 'pasted-image', { type: imageType }),
+      representation: 'items' as const,
+    };
+    if (ALLOWED_TYPES.has(imageType)) return candidate;
+    unsupportedImage ??= candidate;
   }
-  return Array.from(clipboardData.files ?? []).find((file) => file.type.startsWith('image/')) ?? null;
+  const files = Array.from(clipboardData.files ?? []);
+  const file = files.find((candidate) => ALLOWED_TYPES.has(candidate.type.toLowerCase()));
+  if (file) return { file, representation: 'files' };
+  const otherImage = files.find((candidate) => candidate.type.toLowerCase().startsWith('image/'));
+  return unsupportedImage ?? (otherImage ? { file: otherImage, representation: 'files' } : null);
+}
+
+export function imageFromPaste(clipboardData: Pick<DataTransfer, 'items' | 'files'>): File | null {
+  return imageFromPasteDetails(clipboardData)?.file ?? null;
+}
+
+/** A pending conversion must not send an older photo from the previous render. */
+export function photoReadyForSend(photo: string | null, prepared: string | null, processing: boolean): boolean {
+  return !processing && photo === prepared;
 }
 
 /** Decode and downsize on-device. Upload only the compressed JPEG, never the original file. */

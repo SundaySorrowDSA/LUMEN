@@ -5,3 +5,4 @@
 - [Kindroid schedule clock](kindroid-schedule-clock.md) — Kindroid may override calendar weekdays with its internal clock; validate next-shift wording against tool facts.
 - [iPhone composer layout](iphone-composer-layout.md) — the mobile chat composer is verified with the real iOS keyboard; preserve its viewport, safe-area, and scroll behavior.
 - [OpenAI model verification](openai-model-verification.md) — validate model names and Responses API payloads against current official OpenAI docs before provider changes.
+- [iPhone photo retention diagnosis](iphone-photo-retention.md) — browser paste/send success does not rule out intermittent same-device Safari thumbnail loss; compare save and later lookup metadata.

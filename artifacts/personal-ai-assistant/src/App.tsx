@@ -51,12 +51,17 @@ import {
   restoreFailedDraft,
   type OptimisticMessage,
 } from '@/lib/optimistic-messages';
-import { imageFromPaste, resizePhoto } from '@/lib/photo';
+import { imageFromPasteDetails, photoReadyForSend, resizePhoto } from '@/lib/photo';
 import {
   deleteLocalPhotos, loadLocalPhotos, persistSentPhoto, photoMessageText,
   photoUrlForMessage, type LocalPhotoUrls,
 } from '@/lib/local-photos';
 import { PhotoViewer } from '@/components/photo-viewer';
+import { PhotoDiagnosticDetail } from '@/components/photo-diagnostic-detail';
+import {
+  readPhotoDiagnostics, updatePhotoDiagnostic,
+  type PhotoDiagnostic, type PhotoSource,
+} from '@/lib/photo-diagnostics';
 
 const queryClient = new QueryClient();
 const ASSISTANT_TRACE_HEADER = 'X-Assistant-Trace-ID';
@@ -447,11 +452,25 @@ function Workspace() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [composer, setComposer] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
+  const [photoSource, setPhotoSource] = useState<PhotoSource | null>(null);
+  const [pasteRepresentation, setPasteRepresentation] = useState<'items' | 'files' | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [localPhotos, setLocalPhotos] = useState<LocalPhotoUrls | null>(null);
+  const [photoDiagnostics, setPhotoDiagnostics] = useState<{
+    conversationId: number;
+    records: Record<number, PhotoDiagnostic>;
+  } | null>(null);
+  const [photoLookup, setPhotoLookup] = useState<{
+    conversationId: number;
+    status: 'loading' | 'ready' | 'failed';
+    checkedAt: number;
+    foundIds: Set<number>;
+  } | null>(null);
   const [viewerMessageId, setViewerMessageId] = useState<number | null>(null);
   const closePhotoViewer = useCallback(() => setViewerMessageId(null), []);
   const [photoProcessing, setPhotoProcessing] = useState(false);
+  const photoProcessingRef = useRef(false);
+  const photoReadyRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoPickVersionRef = useRef(0);
   const [newTitle, setNewTitle] = useState('');
@@ -494,14 +513,33 @@ function Workspace() {
   }));
   const displayedRenMood = isThinking ? { symbol: '✦', label: 'Thinking' } : renMood;
 
+  const recordPhotoDiagnostic = (conversationId: number, messageId: number, patch: PhotoDiagnostic) => {
+    const next = updatePhotoDiagnostic(conversationId, messageId, patch);
+    setPhotoDiagnostics((current) => current?.conversationId === conversationId ? {
+      conversationId,
+      records: { ...current.records, [messageId]: { ...current.records[messageId], ...next } },
+    } : current);
+  };
+
   useEffect(() => {
     let disposed = false;
     const urls: string[] = [];
     setLocalPhotos(null);
     setViewerMessageId(null);
+    setPhotoDiagnostics(selected === null ? null : {
+      conversationId: selected,
+      records: readPhotoDiagnostics(selected),
+    });
+    setPhotoLookup(selected === null ? null : {
+      conversationId: selected, status: 'loading', checkedAt: 0, foundIds: new Set(),
+    });
     if (selected === null) return;
     void loadLocalPhotos(selected).then((photos) => {
       if (disposed) return;
+      setPhotoLookup({
+        conversationId: selected, status: 'ready', checkedAt: Date.now(),
+        foundIds: new Set(photos.map((item) => item.messageId)),
+      });
       const messages = messagesRef.current;
       scrollAfterPhotosRef.current = !!messages &&
         messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
@@ -516,7 +554,10 @@ function Workspace() {
         urls: { ...byMessageId, ...(current?.conversationId === selected ? current.urls : {}) },
       }));
     }).catch(() => {
-      if (!disposed) setPhotoError('Photos saved on this browser could not be loaded. Messages are still available.');
+      if (!disposed) {
+        setPhotoLookup({ conversationId: selected, status: 'failed', checkedAt: Date.now(), foundIds: new Set() });
+        setPhotoError('Photos saved on this browser could not be loaded. Messages are still available.');
+      }
     });
     return () => {
       disposed = true;
@@ -606,35 +647,54 @@ function Workspace() {
       },
     });
   };
-  const preparePhoto = async (file: File) => {
+  const preparePhoto = async (file: File, source: PhotoSource, representation?: 'items' | 'files') => {
     const version = ++photoPickVersionRef.current;
+    photoReadyRef.current = null;
+    photoProcessingRef.current = true;
     setPhoto(null);
+    setPhotoSource(null);
+    setPasteRepresentation(null);
     setPhotoProcessing(true);
     try {
       const resized = await resizePhoto(file);
-      if (version === photoPickVersionRef.current) setPhoto(resized);
+      if (version === photoPickVersionRef.current) {
+        photoReadyRef.current = resized;
+        setPhoto(resized);
+        setPhotoSource(source);
+        setPasteRepresentation(source === 'paste' ? representation ?? null : null);
+      }
     } catch (error) {
       if (version === photoPickVersionRef.current) {
         setPhotoError(error instanceof Error ? error.message : 'This photo could not be processed.');
       }
     } finally {
-      if (version === photoPickVersionRef.current) setPhotoProcessing(false);
+      if (version === photoPickVersionRef.current) {
+        photoProcessingRef.current = false;
+        setPhotoProcessing(false);
+      }
     }
   };
   const selectPhoto = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (file) void preparePhoto(file);
+    if (file) void preparePhoto(file, 'picker');
   };
   const removePhoto = () => {
     photoPickVersionRef.current += 1;
+    photoReadyRef.current = null;
+    photoProcessingRef.current = false;
     setPhoto(null);
+    setPhotoSource(null);
+    setPasteRepresentation(null);
     setPhotoProcessing(false);
   };
   const submitMessage = () => {
-    if (!selected || (!composer.trim() && !photo) || isThinking || photoProcessing) return;
+    if (!selected || (!composer.trim() && !photo) || isThinking ||
+        !photoReadyForSend(photo, photoReadyRef.current, photoProcessing || photoProcessingRef.current)) return;
     const content = composer.trim();
     const photoDataUrl = photo;
+    const sentPhotoSource = photoSource;
+    const sentPasteRepresentation = pasteRepresentation;
     const displayContent = photoDataUrl ? `[Photo attached]${content ? `\n${content}` : ''}` : content;
     const traceId = crypto.randomUUID();
     assistantTraceIdRef.current = traceId;
@@ -658,8 +718,18 @@ function Workspace() {
     sendMessage.mutate({ id: selected, data: { content, ...(photoDataUrl ? { photoDataUrl } : {}) } }, {
       onSuccess: (pair) => {
         if (photoDataUrl) {
+          photoReadyRef.current = null;
           setPhoto(null);
+          setPhotoSource(null);
+          setPasteRepresentation(null);
           setComposer('');
+          const conversationId = Number(pair.userMessage.conversationId);
+          const messageId = Number(pair.userMessage.id);
+          recordPhotoDiagnostic(conversationId, messageId, {
+            source: sentPhotoSource ?? undefined,
+            pasteRepresentation: sentPhotoSource === 'paste' ? sentPasteRepresentation ?? undefined : undefined,
+            compressedAtSend: true, save: 'pending', sentAt: Date.now(),
+          });
           const write = persistSentPhoto(pair.userMessage, photoDataUrl, (conversationId, messageId, url) => {
             setLocalPhotos((current) => ({
               conversationId,
@@ -668,9 +738,11 @@ function Workspace() {
           });
           pendingPhotoWritesRef.current.add(write);
           void write
-            .catch(() => setPhotoError(
-              'Message sent, but its photo could not be saved on this browser. The text and Ren’s reply are still available.',
-            ))
+            .then(() => recordPhotoDiagnostic(conversationId, messageId, { save: 'saved' }))
+            .catch(() => {
+              recordPhotoDiagnostic(conversationId, messageId, { save: 'failed' });
+              setPhotoError('Message sent, but its photo could not be saved on this browser. The text and Ren’s reply are still available.');
+            })
             .finally(() => pendingPhotoWritesRef.current.delete(write));
         }
         console.info('[assistant-trace]', {
@@ -776,10 +848,24 @@ function Workspace() {
                const isOptimistic = 'optimistic' in message;
                const photoUrl = !isOptimistic ? photoUrlForMessage(message, localPhotos) : undefined;
                const text = photoMessageText(message.content, !!photoUrl);
+                const conversationId = Number(message.conversationId);
+                const messageId = Number(message.id);
+                const diagnostic = photoDiagnostics?.conversationId === conversationId
+                  ? photoDiagnostics.records[messageId] : undefined;
+                const lookup = photoLookup?.conversationId !== conversationId || photoLookup.status === 'loading'
+                  ? 'Checking…'
+                  : photoLookup.status === 'failed'
+                    ? 'Read failed'
+                    : diagnostic?.sentAt && photoLookup.checkedAt <= diagnostic.sentAt
+                      ? 'Not checked since send'
+                      : photoLookup.foundIds.has(messageId) ? 'Found' : 'Not found';
+                const showDiagnostic = !isOptimistic && message.role === 'user' &&
+                  message.content.startsWith('[Photo attached]') && !photoUrl && !diagnostic?.dismissed;
                return <div key={message.id} className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`} data-testid={`message-${message.id}`}>
                  <div className={`max-w-[88%] ${message.role === 'user' ? `rounded-lg rounded-br-md px-4 py-3 text-primary-foreground ${isOptimistic && message.status === 'failed' ? 'bg-destructive/80' : 'bg-primary'}` : 'pt-1'}`}>
                    {photoUrl && <button type="button" onClick={() => setViewerMessageId(Number(message.id))} aria-label="View attached photo full screen" className="block overflow-hidden rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" data-testid={`button-photo-thumbnail-${message.id}`}><img src={photoUrl} alt="Attached photo thumbnail" className="h-24 w-24 object-cover" /></button>}
                    {text && <div className={`whitespace-pre-wrap text-[14px] leading-7 ${photoUrl ? 'mt-2' : ''} ${message.role === 'assistant' ? 'text-foreground/85' : ''}`}>{text}</div>}
+                    {showDiagnostic && <PhotoDiagnosticDetail conversationId={conversationId} messageId={messageId} diagnostic={diagnostic} lookup={lookup} onDismiss={() => recordPhotoDiagnostic(conversationId, messageId, { dismissed: true })} />}
                    <div className={`mt-2 font-mono text-[9px] uppercase tracking-[.12em] ${message.role === 'user' ? 'text-primary-foreground/55' : 'text-muted-foreground'}`}>{isOptimistic ? (message.status === 'failed' ? 'Not sent · text preserved' : 'Sending…') : message.role === 'assistant' ? `${message.model ?? overview?.model ?? 'Lumen'} · ${formatDate(message.createdAt)}` : formatDate(message.createdAt)}</div>
                    {isOptimistic && message.status === 'failed' && <div className="mt-3 flex gap-3 border-t border-white/20 pt-2 text-[11px] font-medium"><button type="button" className="underline underline-offset-2" onClick={() => { const restored = restoreFailedDraft(optimisticMessages, message.submittedAt); if (restored.composer !== null) setComposer(restored.composer); }} data-testid={`button-restore-${message.submittedAt}`}>Restore to composer</button><button type="button" className="text-primary-foreground/70 underline underline-offset-2" onClick={() => setOptimisticMessages((current) => dismissFailedDraft(current, message.submittedAt))} data-testid={`button-dismiss-${message.submittedAt}`}>Dismiss</button></div>}
                  </div>
@@ -798,10 +884,10 @@ function Workspace() {
                  value={composer}
                  onChange={(event) => setComposer(event.target.value)}
                   onPaste={(event) => {
-                    const file = imageFromPaste(event.clipboardData);
-                    if (!file) return;
+                    const image = imageFromPasteDetails(event.clipboardData);
+                    if (!image) return;
                     if (!event.clipboardData.getData('text/plain')) event.preventDefault();
-                    void preparePhoto(file);
+                    void preparePhoto(image.file, 'paste', image.representation);
                   }}
                   onFocus={() => {
                     const messages = messagesRef.current;

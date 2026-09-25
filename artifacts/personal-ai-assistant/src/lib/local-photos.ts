@@ -1,3 +1,5 @@
+import { deletePhotoDiagnostics } from './photo-diagnostics.ts';
+
 const DATABASE_NAME = 'lumen-local-photos';
 const STORE_NAME = 'photos';
 const DATABASE_VERSION = 1;
@@ -106,18 +108,22 @@ export async function loadLocalPhotos(conversationId: number): Promise<StoredPho
 }
 
 export async function deleteLocalPhotos(conversationId: number): Promise<void> {
-  const database = await openDatabase();
-  const transaction = database.transaction(STORE_NAME, 'readwrite');
-  const done = transactionDone(transaction, database);
-  const request = transaction.objectStore(STORE_NAME).index('conversationId').openCursor(conversationId);
-  request.onsuccess = () => {
-    const cursor = request.result;
-    if (cursor) {
-      cursor.delete();
-      cursor.continue();
-    }
-  };
-  await done;
+  try {
+    const database = await openDatabase();
+    const transaction = database.transaction(STORE_NAME, 'readwrite');
+    const done = transactionDone(transaction, database);
+    const request = transaction.objectStore(STORE_NAME).index('conversationId').openCursor(conversationId);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      }
+    };
+    await done;
+  } finally {
+    deletePhotoDiagnostics(conversationId);
+  }
 }
 
 export function photoMessageText(content: string, hasLocalPhoto: boolean): string {
