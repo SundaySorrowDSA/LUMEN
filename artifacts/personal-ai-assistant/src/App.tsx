@@ -52,7 +52,10 @@ import {
   type OptimisticMessage,
 } from '@/lib/optimistic-messages';
 import { resizePhoto } from '@/lib/photo';
-import { deleteLocalPhotos, loadLocalPhotos, photoMessageText, saveLocalPhoto } from '@/lib/local-photos';
+import {
+  deleteLocalPhotos, loadLocalPhotos, persistSentPhoto, photoMessageText,
+  photoUrlForMessage, type LocalPhotoUrls,
+} from '@/lib/local-photos';
 import { PhotoViewer } from '@/components/photo-viewer';
 
 const queryClient = new QueryClient();
@@ -445,8 +448,7 @@ function Workspace() {
   const [composer, setComposer] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  const [localPhotos, setLocalPhotos] = useState<{ conversationId: number; urls: Record<number, string> } | null>(null);
-  const [localPhotosVersion, setLocalPhotosVersion] = useState(0);
+  const [localPhotos, setLocalPhotos] = useState<LocalPhotoUrls | null>(null);
   const [viewerMessageId, setViewerMessageId] = useState<number | null>(null);
   const closePhotoViewer = useCallback(() => setViewerMessageId(null), []);
   const [photoProcessing, setPhotoProcessing] = useState(false);
@@ -509,7 +511,10 @@ function Workspace() {
         urls.push(url);
         byMessageId[item.messageId] = url;
       }
-      setLocalPhotos({ conversationId: selected, urls: byMessageId });
+      setLocalPhotos((current) => ({
+        conversationId: selected,
+        urls: { ...byMessageId, ...(current?.conversationId === selected ? current.urls : {}) },
+      }));
     }).catch(() => {
       if (!disposed) setPhotoError('Photos saved on this browser could not be loaded. Messages are still available.');
     });
@@ -517,7 +522,7 @@ function Workspace() {
       disposed = true;
       urls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [selected, localPhotosVersion]);
+  }, [selected]);
 
   useLayoutEffect(() => {
     if (scrollAfterPhotosRef.current && messagesRef.current) {
@@ -653,10 +658,14 @@ function Workspace() {
         if (photoDataUrl) {
           setPhoto(null);
           setComposer('');
-          const write = saveLocalPhoto(selected, pair.userMessage.id, photoDataUrl);
+          const write = persistSentPhoto(pair.userMessage, photoDataUrl, (conversationId, messageId, url) => {
+            setLocalPhotos((current) => ({
+              conversationId,
+              urls: { ...(current?.conversationId === conversationId ? current.urls : {}), [messageId]: url },
+            }));
+          });
           pendingPhotoWritesRef.current.add(write);
           void write
-            .then(() => setLocalPhotosVersion((version) => version + 1))
             .catch(() => setPhotoError(
               'Message sent, but its photo could not be saved on this browser. The text and Ren’s reply are still available.',
             ))
@@ -763,9 +772,7 @@ function Workspace() {
          <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 sm:px-8 lg:px-14">
              {!selected ? <div className="flex h-full min-h-[420px] flex-col items-center justify-center text-center"><div className="mb-5 flex h-16 w-16 items-center justify-center rounded-lg border border-accent/40 bg-accent/10 text-primary"><Sparkles size={25} strokeWidth={1.4} /></div><h2 className="font-serif text-3xl">A clear place to begin.</h2><p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">Choose a thread or open a new one. Lumen is here to think alongside you.</p><button onClick={() => setShowNew(true)} className="mt-6 flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm text-primary-foreground transition-transform hover:-translate-y-0.5" data-testid="button-empty-new-conversation"><Plus size={15} /> Start a thread</button></div> : detailQuery.isLoading ? <div className="mx-auto max-w-2xl pt-8"><LoadingLines count={7} /></div> : detailQuery.isError ? <div className="mx-auto mt-10 max-w-sm rounded-lg border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="text-sm font-medium text-destructive">This thread could not be opened.</p><button onClick={() => detailQuery.refetch()} className="mt-3 text-xs underline" data-testid="button-retry-conversation">Try again</button></div> : displayedMessages.length === 0 ? <div className="mx-auto flex min-h-[400px] max-w-xl flex-col items-center justify-center text-center"><div className="mb-5 font-mono text-[10px] uppercase tracking-[.2em] text-accent">New thread</div><h2 className="font-serif text-4xl">What should we hold today?</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">Ask for a considered answer, a web search, or a small action. You stay in control.</p><div className="mt-8 grid grid-cols-1 gap-2 text-left sm:grid-cols-3"><button onClick={() => setComposer('Help me make sense of something I am working through')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-clarify">Make sense of something</button><button onClick={() => setComposer('Research this topic and bring me the useful details')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-research">Research a topic</button><button onClick={() => setComposer('Help me plan the next steps for a project')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-plan">Plan next steps</button></div></div> : <div className="mx-auto max-w-2xl space-y-8">{displayedMessages.map((message) => {
                const isOptimistic = 'optimistic' in message;
-               const photoUrl = !isOptimistic && message.role === 'user' && message.content.startsWith('[Photo attached]') && localPhotos?.conversationId === selected
-                 ? localPhotos.urls[message.id]
-                 : undefined;
+               const photoUrl = !isOptimistic ? photoUrlForMessage(message, localPhotos) : undefined;
                const text = photoMessageText(message.content, !!photoUrl);
                return <div key={message.id} className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`} data-testid={`message-${message.id}`}>
                  <div className={`max-w-[88%] ${message.role === 'user' ? `rounded-lg rounded-br-md px-4 py-3 text-primary-foreground ${isOptimistic && message.status === 'failed' ? 'bg-destructive/80' : 'bg-primary'}` : 'pt-1'}`}>

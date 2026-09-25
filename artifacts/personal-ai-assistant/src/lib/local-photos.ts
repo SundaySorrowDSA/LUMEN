@@ -8,6 +8,41 @@ type StoredPhoto = {
   blob: Blob;
 };
 
+export type LocalPhotoUrls = {
+  conversationId: number;
+  urls: Record<number, string>;
+};
+
+type PhotoMessage = {
+  id: number;
+  conversationId: number;
+  role: string;
+  content: string;
+};
+
+export function photoUrlForMessage(message: PhotoMessage, photos: LocalPhotoUrls | null): string | undefined {
+  if (message.role !== 'user' || !message.content.startsWith('[Photo attached]')) return undefined;
+  if (photos?.conversationId !== Number(message.conversationId)) return undefined;
+  return photos.urls[Number(message.id)];
+}
+
+/** Show the returned user's photo immediately; persist the same bytes under the returned IDs. */
+export function persistSentPhoto(
+  message: PhotoMessage,
+  dataUrl: string,
+  showImmediately: (conversationId: number, messageId: number, url: string) => void,
+  persist: (conversationId: number, messageId: number, url: string) => Promise<void> = saveLocalPhoto,
+): Promise<void> {
+  const conversationId = Number(message.conversationId);
+  const messageId = Number(message.id);
+  if (message.role !== 'user' || !message.content.startsWith('[Photo attached]') ||
+      !Number.isSafeInteger(conversationId) || !Number.isSafeInteger(messageId)) {
+    return Promise.reject(new Error('The returned photo message could not be identified.'));
+  }
+  showImmediately(conversationId, messageId, dataUrl);
+  return persist(conversationId, messageId, dataUrl);
+}
+
 export function photoDataUrlToBlob(dataUrl: string): Blob {
   const prefix = 'data:image/jpeg;base64,';
   if (!dataUrl.startsWith(prefix)) throw new Error('Unsupported local photo format.');
