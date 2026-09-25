@@ -51,7 +51,7 @@ import {
   restoreFailedDraft,
   type OptimisticMessage,
 } from '@/lib/optimistic-messages';
-import { resizePhoto } from '@/lib/photo';
+import { imageFromPaste, resizePhoto } from '@/lib/photo';
 import {
   deleteLocalPhotos, loadLocalPhotos, persistSentPhoto, photoMessageText,
   photoUrlForMessage, type LocalPhotoUrls,
@@ -606,10 +606,7 @@ function Workspace() {
       },
     });
   };
-  const selectPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
+  const preparePhoto = async (file: File) => {
     const version = ++photoPickVersionRef.current;
     setPhoto(null);
     setPhotoProcessing(true);
@@ -623,6 +620,11 @@ function Workspace() {
     } finally {
       if (version === photoPickVersionRef.current) setPhotoProcessing(false);
     }
+  };
+  const selectPhoto = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file) void preparePhoto(file);
   };
   const removePhoto = () => {
     photoPickVersionRef.current += 1;
@@ -795,6 +797,12 @@ function Workspace() {
                   ref={composerRef}
                  value={composer}
                  onChange={(event) => setComposer(event.target.value)}
+                  onPaste={(event) => {
+                    const file = imageFromPaste(event.clipboardData);
+                    if (!file) return;
+                    if (!event.clipboardData.getData('text/plain')) event.preventDefault();
+                    void preparePhoto(file);
+                  }}
                   onFocus={() => {
                     const messages = messagesRef.current;
                     keepLatestVisibleRef.current = !!messages &&
