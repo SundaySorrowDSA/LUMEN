@@ -1,33 +1,19 @@
-const TECHNICAL_ACTION =
-  /\b(?:debug|debugging|troubleshoot|troubleshooting|diagnose|diagnosing|investigate|fix|resolve|identify|determine|design|implement|explain why)\b/i;
+const REQUEST =
+  /(?:ask\s+(?:openai|chatgpt)|consult\s+(?:with\s+)?openai)\b/i;
+const DIRECT_REQUEST =
+  /^(?:(?:hey[, ]+\s*)?(?:ren|lumen)[,!:]?\s*)?(?:(?:please\s+)?(?:can|could|would|will)\s+you\s+(?:please\s+)?|i\s+(?:want|need)\s+you\s+to\s+|(?:i(?:'d|\s+would)\s+like\s+you\s+to\s+)|please\s+)?(?:ask\s+(?:openai|chatgpt)|consult\s+(?:with\s+)?openai)\b[\s:,-]*/i;
+const SUFFIX_REQUEST =
+  /\s+(?:please\s+)?(?:ask\s+(?:openai|chatgpt)|consult\s+(?:with\s+)?openai)[.!?]?\s*$/i;
+const REN_FOLLOW_UP =
+  /(?:[.!?]\s+|,\s*)then\s+(?:(?:you|ren)\s+)?(?:pick|tell|explain|summarize|respond)\b/i;
 
-const TECHNICAL_FAILURE =
-  /\b(?:error|exception|stack trace|build failure|build failed|failing tests?|test failure|crash|timeout|timed out|memory leak|race condition|deadlock|dependency conflict|authentication failure|authorization failure|webhook failure|integration failure|deployment failure|network failure|database failure|query plan|http [45]\d\d)\b/i;
-
-const COMPLEX_TECHNICAL_TOPIC =
-  /\b(?:system architecture|software architecture|migration strategy|distributed system|concurrency|performance bottleneck|threat model|security vulnerability|database migration|api integration|oauth flow|data consistency)\b/i;
-
-const WEB_SOURCE_SYNTHESIS =
-  /\b(?:synthesize|cross-check|reconcile|weigh|assess)\b[^.!?\n]{0,80}\b(?:sources?|reports?|claims?|evidence|findings)\b|\bcompare\s+(?:the\s+)?(?:sources?|reports?|claims?|findings)|\bwhat\s+do\s+(?:the\s+)?sources?\s+(?:agree|disagree)\s+(?:on|about)|\bbased\s+on\s+(?:these|the)\s+sources?\b/i;
-
-export type AutomaticConsultationInput = {
-  message: string;
-  localToolHandled: boolean;
-  hasWebResults: boolean;
-};
-
-export function shouldAutomaticallyConsultOpenAI({
-  message,
-  localToolHandled,
-  hasWebResults,
-}: AutomaticConsultationInput): boolean {
-  if (localToolHandled) return false;
-
-  const technicalReasoningNeeded =
-    TECHNICAL_ACTION.test(message) &&
-    (TECHNICAL_FAILURE.test(message) || COMPLEX_TECHNICAL_TOPIC.test(message));
-  const webSynthesisNeeded =
-    hasWebResults && WEB_SOURCE_SYNTHESIS.test(message);
-
-  return technicalReasoningNeeded || webSynthesisNeeded;
+/** Null means no explicit request; an empty string means the user gave no task. */
+export function extractExplicitOpenAIQuestion(content: string): string | null {
+  if (!REQUEST.test(content)) return null;
+  const direct = DIRECT_REQUEST.exec(content);
+  if (direct) return content.slice(direct[0].length).split(REN_FOLLOW_UP)[0].trim().slice(0, 2_000);
+  if (SUFFIX_REQUEST.test(content)) {
+    return content.replace(SUFFIX_REQUEST, "").trim().slice(0, 2_000);
+  }
+  return null;
 }

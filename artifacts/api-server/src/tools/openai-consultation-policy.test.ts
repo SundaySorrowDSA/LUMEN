@@ -1,69 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { shouldAutomaticallyConsultOpenAI } from "./openai-consultation-policy.js";
+import { extractExplicitOpenAIQuestion } from "./openai-consultation-policy.js";
 
-const decide = (
-  message: string,
-  options: { localToolHandled?: boolean; hasWebResults?: boolean } = {},
-) => shouldAutomaticallyConsultOpenAI({
-  message,
-  localToolHandled: options.localToolHandled ?? false,
-  hasWebResults: options.hasWebResults ?? false,
+test("extracts only explicit OpenAI requests and their tasks", () => {
+  assert.equal(extractExplicitOpenAIQuestion("Ask OpenAI: explain this error"), "explain this error");
+  assert.equal(extractExplicitOpenAIQuestion("Ren, could you please ask OpenAI what causes tides?"), "what causes tides?");
+  assert.equal(extractExplicitOpenAIQuestion("Hey, Lumen, can you ask OpenAI: what causes tides?"), "what causes tides?");
+  assert.equal(extractExplicitOpenAIQuestion("I want you to ask OpenAI: compare these plans"), "compare these plans");
+  assert.equal(extractExplicitOpenAIQuestion("Please consult with OpenAI on this plan"), "on this plan");
+  assert.equal(
+    extractExplicitOpenAIQuestion("Ren, ask OpenAI to give you three approaches. Then pick the one you like and explain it to me."),
+    "to give you three approaches",
+  );
+  assert.equal(extractExplicitOpenAIQuestion("What causes tides? Please ask OpenAI."), "What causes tides?");
+  assert.equal(extractExplicitOpenAIQuestion("Ask ChatGPT: tell me a joke"), "tell me a joke");
+  assert.equal(extractExplicitOpenAIQuestion("Ask OpenAI"), "");
 });
 
-test("automatically consults for concrete technical troubleshooting", () => {
-  assert.equal(
-    decide("Diagnose why this API integration keeps timing out during OAuth."),
-    true,
-  );
-  assert.equal(
-    decide("Help me debug this race condition and failing tests."),
-    true,
-  );
-});
-
-test("automatically consults for explicit synthesis when web results exist", () => {
-  assert.equal(
-    decide("Cross-check the current reports and reconcile what the sources disagree on.", {
-      hasWebResults: true,
-    }),
-    true,
-  );
-});
-
-test("does not consult for generic analysis words or ordinary conversation", () => {
-  const messages = [
-    "Analyze how my day went.",
-    "Compare how we each handled that relationship discussion.",
-    "Can you reason through my feelings with me?",
+test("does not route technical topics or mentions of OpenAI automatically", () => {
+  for (const content of [
+    "Diagnose why this API integration keeps timing out during OAuth.",
+    "Cross-check these sources and reconcile their claims.",
+    "Tell me about OpenAI.",
+    "I might ask OpenAI later.",
+    "Do not ask OpenAI about this.",
+    "What happens if I ask OpenAI a question?",
     "Hello Ren, how are you?",
-    "Write a playful roleplay scene for us.",
-    "What is an API?",
-    "Compare these two dinner ideas.",
-    "Ask ChatGPT: tell me a joke.",
-  ];
-  for (const message of messages) {
-    assert.equal(decide(message), false, message);
+  ]) {
+    assert.equal(extractExplicitOpenAIQuestion(content), null, content);
   }
-});
-
-test("does not synthesize without successful web results", () => {
-  assert.equal(
-    decide("Cross-check the current reports and reconcile what the sources disagree on."),
-    false,
-  );
-});
-
-test("local tool handling vetoes automatic consultation", () => {
-  assert.equal(
-    decide("Diagnose why this API request timed out.", { localToolHandled: true }),
-    false,
-  );
-  assert.equal(
-    decide("Compare the sources and assess the evidence.", {
-      localToolHandled: true,
-      hasWebResults: true,
-    }),
-    false,
-  );
 });
