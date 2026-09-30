@@ -55,7 +55,10 @@ import {
   requiresReminderTool,
   runReminderTool,
 } from "../tools/reminders.js";
-import { extractExplicitOpenAIQuestion } from "../tools/openai-consultation-policy.js";
+import {
+  assessOpenAIConsultation,
+  extractExplicitOpenAIQuestion,
+} from "../tools/openai-consultation-policy.js";
 import { InvalidPhotoError, preparePhotoContext } from "../tools/photo-analysis.js";
 import {
   ASSISTANT_TRACE_HEADER,
@@ -586,6 +589,22 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     );
   }
   const webSearch = webSearchOutcome.webSearch;
+  const consultationAssessment = assessOpenAIConsultation({
+    message: body.content,
+    explicitRequest: explicitConsultationRequested,
+    localToolHandled,
+    webResultCount: webSearch?.results.length ?? 0,
+  });
+  traceLog.info(
+    {
+      stage: "consult_openai_assessment",
+      tool: "consult_openai",
+      decision: consultationAssessment.decision,
+      reason: consultationAssessment.reason,
+      automaticCallEnabled: false,
+    },
+    "Assistant trace OpenAI consultation assessment",
+  );
   let providerContent = webSearchOutcome.providerContent;
   if (workSchedule) {
     providerContent = buildWorkScheduleContext(providerContent, workSchedule);
