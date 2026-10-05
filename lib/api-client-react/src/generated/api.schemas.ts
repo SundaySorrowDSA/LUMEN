@@ -5,6 +5,23 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface OpenAiImageError {
+  status: number;
+  message: string;
+  /** @nullable */
+  code: string | null;
+  /** @nullable */
+  type: string | null;
+  /** @nullable */
+  param: string | null;
+}
+
+export interface TestImageFailure {
+  error: string;
+  /** Credential-redacted upstream details, only returned in development */
+  openaiError?: OpenAiImageError;
+}
+
 export interface TestImageInput {
   /**
      * Image prompt; whitespace-only prompts are not accepted

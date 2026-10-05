@@ -17,7 +17,7 @@ body{font:16px system-ui,sans-serif;background:#191a1c;color:#eee;max-width:800p
 button{background:#e9b52b;color:#191a1c;border:0;border-radius:8px;padding:14px 20px;font:inherit;cursor:pointer}
 button:disabled{opacity:.6;cursor:wait}img{display:block;max-width:100%;height:auto;margin-top:24px;border-radius:8px}
 img[hidden]{display:none}
-small{color:#b9b9b9}#status{min-height:24px}
+small{color:#b9b9b9}#status{min-height:24px;white-space:pre-wrap;overflow-wrap:anywhere}
 textarea{box-sizing:border-box;width:100%;margin:8px 0 16px;padding:10px;font:inherit;border:1px solid #666;border-radius:8px;background:#252629;color:#eee}
 </style></head><body>
 <h1>LUMEN image test</h1>
@@ -50,7 +50,15 @@ button.addEventListener("click", async () => {
     });
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error || "Image generation failed.");
+      const details = error.openaiError;
+      const diagnosticText = details ? [
+        "OpenAI HTTP status: " + details.status,
+        "Message: " + details.message,
+        "Code: " + (details.code ?? "(not provided)"),
+        "Type: " + (details.type ?? "(not provided)"),
+        "Param: " + (details.param ?? "(not provided)"),
+      ].join("\\n") : "";
+      throw new Error((error.error || "Image generation failed.") + (diagnosticText ? "\\n" + diagnosticText : ""));
     }
     if (imageUrl) URL.revokeObjectURL(imageUrl);
     imageUrl = URL.createObjectURL(await response.blob());
@@ -105,11 +113,26 @@ export function createTestImageRouter(options: {
       const failure = error instanceof TestImageError
         ? error
         : new TestImageError(502, "Image generation failed.");
+      const diagnostics = process.env.NODE_ENV === "development"
+        ? failure.developmentDiagnostics
+        : undefined;
       req.log.warn(
-        { stage: "test_image_failed", model: TEST_IMAGE_MODEL, status: failure.status, upstreamStatus: failure.upstreamStatus },
+        {
+          stage: "test_image_failed",
+          model: TEST_IMAGE_MODEL,
+          status: failure.status,
+          upstreamStatus: failure.upstreamStatus,
+          ...(diagnostics ? {
+            openaiResponseBody: diagnostics.body,
+            openaiError: diagnostics.error,
+          } : {}),
+        },
         "Isolated OpenAI image test failed",
       );
-      res.status(failure.status).json({ error: failure.message });
+      res.status(failure.status).json({
+        error: failure.message,
+        ...(diagnostics ? { openaiError: diagnostics.error } : {}),
+      });
     } finally {
       generating = false;
     }

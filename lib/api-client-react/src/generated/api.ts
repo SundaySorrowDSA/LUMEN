@@ -33,6 +33,7 @@ import type {
   AssistantProviderSelection,
   AssistantProviderSelectionInput,
   HealthStatus,
+  TestImageFailure,
   TestImageInput
 } from './api.schemas';
 
@@ -182,7 +183,7 @@ return customFetch<Blob>(getGenerateTestImageUrl(),
 
 export const getGenerateTestImageMutationKey = () => ['generateTestImage'] as const;
 
-export const getGenerateTestImageMutationOptions = <TError = ErrorType<void>,
+export const getGenerateTestImageMutationOptions = <TError = ErrorType<void | TestImageFailure>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateTestImage>>, TError,GenerateTestImageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof generateTestImage>>, TError,GenerateTestImageMutationVariables, TContext> => {
 
@@ -211,13 +212,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type GenerateTestImageMutationResult = NonNullable<Awaited<ReturnType<typeof generateTestImage>>>
     export type GenerateTestImageMutationBody = BodyType<TestImageInput>
-    export type GenerateTestImageMutationError = ErrorType<void>
+    export type GenerateTestImageMutationError = ErrorType<void | TestImageFailure>
     export type GenerateTestImageMutationVariables = {data: BodyType<TestImageInput>}
 
     /**
  * @summary Generate one test image from the submitted prompt
  */
-export const useGenerateTestImage = <TError = ErrorType<void>,
+export const useGenerateTestImage = <TError = ErrorType<void | TestImageFailure>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateTestImage>>, TError,GenerateTestImageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof generateTestImage>>,

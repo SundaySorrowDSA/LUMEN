@@ -1,3 +1,5 @@
+import type { OpenAiImageError } from "@workspace/api-zod";
+
 export const TEST_IMAGE_MODEL = "gpt-image-2.5-flare";
 export const TEST_IMAGE_PROMPT =
   "A small black crow standing on a gold coin, cinematic lighting.";
@@ -7,9 +9,49 @@ export class TestImageError extends Error {
     public readonly status: number,
     message: string,
     public readonly upstreamStatus?: number,
+    public readonly developmentDiagnostics?: {
+      body: string;
+      error: OpenAiImageError;
+    },
   ) {
     super(message);
   }
+}
+
+// Provider errors can echo credentials. Never log request headers, and redact
+// credentials even when they occur in the provider's response body/message.
+function redactCredentials(text: string, apiKey: string): string {
+  return text
+    .split(apiKey).join("[REDACTED]")
+    .replace(/\bsk-[A-Za-z0-9_*-]+/g, "[REDACTED]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "[REDACTED]")
+    .replace(
+      /(["']?(?:authorization|proxy-authorization|x-api-key|api[_-]?key)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\r\n,}]+)/gi,
+      '$1"[REDACTED]"',
+    );
+}
+
+async function readDevelopmentDiagnostics(response: Response, apiKey: string) {
+  const rawBody = await response.text().catch(() => "[OpenAI error response body could not be read]");
+  let providerError: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(rawBody);
+    if (parsed?.error && typeof parsed.error === "object") providerError = parsed.error;
+  } catch {
+    // Keep the complete non-JSON response in the development log.
+  }
+  const field = (name: string): string | null => {
+    const value = providerError[name];
+    return typeof value === "string" ? redactCredentials(value, apiKey) : null;
+  };
+  const error: OpenAiImageError = {
+    status: response.status,
+    message: field("message") ?? `OpenAI returned HTTP ${response.status} without a structured error message. See the development console for the response body.`,
+    code: field("code"),
+    type: field("type"),
+    param: field("param"),
+  };
+  return { body: redactCredentials(rawBody, apiKey), error };
 }
 
 /** One transient Images API request, unrelated to the conversation provider router. */
@@ -36,11 +78,14 @@ export async function generateTestImage(
       signal: AbortSignal.timeout(120_000),
     });
     if (!response.ok) {
-      // Do not expose provider response bodies or credentials to the browser/logs.
+      const diagnostics = process.env.NODE_ENV === "development"
+        ? await readDevelopmentDiagnostics(response, apiKey)
+        : undefined;
       throw new TestImageError(
         502,
         `OpenAI image generation failed (HTTP ${response.status}). Check model access and server-side configuration.`,
         response.status,
+        diagnostics,
       );
     }
     payload = await response.json();

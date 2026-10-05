@@ -7,3 +7,4 @@
 - [OpenAI model verification](openai-model-verification.md) — validate model names and Responses API payloads against current official OpenAI docs before provider changes.
 - [iPhone photo retention diagnosis](iphone-photo-retention.md) — browser paste/send success does not rule out intermittent same-device Safari thumbnail loss; compare save and later lookup metadata.
 - [iOS test entry points](ios-test-entry-points.md) — the user cannot interact with API Server output cards on iOS; expose browser test controls in LUMEN.
+- [Image generation baseline](image-generation-baseline.md) — the user confirmed the crow test works; inspect actual custom-prompt errors before changing working configuration.

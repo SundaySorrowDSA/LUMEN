@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { generateTestImage } from '@workspace/api-client-react';
+import { generateTestImage, type OpenAiImageError } from '@workspace/api-client-react';
 import { Loader2 } from 'lucide-react';
+import { readTestImageError } from '@/lib/test-image-errors';
 
 /** Temporary proof of concept: no conversation mutations, query cache, or persistence. */
 export function TestImageControl() {
@@ -9,6 +10,7 @@ export function TestImageControl() {
   const [pending, setPending] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openaiError, setOpenaiError] = useState<OpenAiImageError | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const urlRef = useRef<string | null>(null);
 
@@ -28,12 +30,14 @@ export function TestImageControl() {
     const enteredPrompt = prompt.trim();
     if (!enteredPrompt) {
       setError('Please enter a non-empty image prompt.');
+      setOpenaiError(null);
       return;
     }
     const controller = new AbortController();
     requestRef.current = controller;
     setPending(true);
     setError(null);
+    setOpenaiError(null);
     releaseImage();
     try {
       const image = await generateTestImage({ prompt: enteredPrompt }, {
@@ -52,6 +56,7 @@ export function TestImageControl() {
     } catch (failure) {
       if (!controller.signal.aborted) {
         setError(failure instanceof Error ? failure.message : 'Could not generate an image. Please try again.');
+        setOpenaiError(readTestImageError(failure));
       }
     } finally {
       if (!controller.signal.aborted) {
@@ -73,7 +78,7 @@ export function TestImageControl() {
         {(imageUrl || error) && !pending && (
           <button
             type="button"
-            onClick={() => { releaseImage(); setError(null); }}
+            onClick={() => { releaseImage(); setError(null); setOpenaiError(null); }}
             className="min-h-11 px-2 text-xs text-muted-foreground underline"
             data-testid="button-dismiss-test-image"
           >
@@ -109,9 +114,18 @@ export function TestImageControl() {
         </p>
       )}
       {error && (
-        <p role="alert" className="mt-2 max-h-24 overflow-y-auto break-words text-xs text-destructive" data-testid="test-image-error">
-          Image generation failed: {error}
-        </p>
+        <div role="alert" className="mt-2 max-h-[30dvh] overflow-y-auto break-words text-xs text-destructive" data-testid="test-image-error">
+          <p>Image generation failed: {error}</p>
+          {openaiError && (
+            <dl className="mt-2 space-y-1 whitespace-pre-wrap" data-testid="test-image-openai-error">
+              <div><dt className="inline font-semibold">OpenAI HTTP status: </dt><dd className="inline">{openaiError.status}</dd></div>
+              <div><dt className="inline font-semibold">Message: </dt><dd className="inline">{openaiError.message}</dd></div>
+              <div><dt className="inline font-semibold">Code: </dt><dd className="inline">{openaiError.code ?? '(not provided)'}</dd></div>
+              <div><dt className="inline font-semibold">Type: </dt><dd className="inline">{openaiError.type ?? '(not provided)'}</dd></div>
+              <div><dt className="inline font-semibold">Param: </dt><dd className="inline">{openaiError.param ?? '(not provided)'}</dd></div>
+            </dl>
+          )}
+        </div>
       )}
       {imageUrl && (
         <figure className="mt-2" data-testid="test-image-result">

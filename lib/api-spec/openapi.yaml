@@ -47,6 +47,10 @@ paths:
           description: Another image generation test is already running
         "502":
           description: OpenAI failed or returned an invalid image
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestImageFailure"
         "503":
           description: OPENAI_API_KEY is not configured
         "504":
@@ -255,6 +259,29 @@ paths:
                   $ref: "#/components/schemas/AssistantConnection"
 components:
   schemas:
+    TestImageFailure:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        openaiError:
+          $ref: "#/components/schemas/OpenAiImageError"
+          description: Credential-redacted upstream details, only returned in development
+    OpenAiImageError:
+      type: object
+      required: [status, message, code, type, param]
+      properties:
+        status:
+          type: integer
+        message:
+          type: string
+        code:
+          type: ["string", "null"]
+        type:
+          type: ["string", "null"]
+        param:
+          type: ["string", "null"]
     TestImageInput:
       type: object
       required: [prompt]
