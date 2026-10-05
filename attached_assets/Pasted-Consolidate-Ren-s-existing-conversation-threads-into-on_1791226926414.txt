@@ -1,0 +1,58 @@
+Consolidate Ren’s existing conversation threads into one canonical persistent thread.
+
+Canonical destination thread: A place to think
+
+Existing threads currently include:
+
+* A place to think
+* Ren feminine identity verification
+* Live consult_openai trace check
+* Image Capability Verification
+
+Before changing any data:
+
+1. Inspect the conversation/thread storage schema and determine how messages, generated images, attachments, timestamps, tool results, and thread IDs are persisted.
+2. Create a checkpoint/backup before migration.
+3. Report the message/note count and any persisted images/attachments in each thread.
+
+Then perform a safe one-time consolidation:
+
+* Keep A place to think as the canonical Ren thread.
+* Move or copy all unique conversation records from the other three threads into A place to think.
+* Preserve original chronological timestamps and message ordering.
+* Preserve generated images and their associations with the correct messages.
+* Preserve tool results and Kindroid responses that belong to those messages.
+* Do not duplicate messages that already exist in the canonical thread.
+* Do not lose conversation metadata or memory/context required by Ren.
+
+For imported verification/test material, add internal metadata identifying the original source thread if the current schema supports it, but do not clutter the visible conversation with migration labels.
+
+Do not permanently delete the three source threads immediately.
+
+After the merge:
+
+1. Verify the canonical thread contains all expected messages and images.
+2. Reopen A place to think and confirm generated images still load.
+3. Confirm new messages continue appending normally.
+4. Set A place to think as the active/default Ren conversation.
+5. Archive or hide the three old verification threads only after successful verification so rollback remains possible.
+
+Also fix the cause of the fragmentation:
+
+* Automated tests and verification routines must never create persistent user-visible conversation threads unless explicitly requested.
+* Tests should use temporary/non-persistent thread state or an isolated test fixture.
+* Automated tests must never change the user’s active conversation.
+* After any automated test, the UI must remain on the thread the user was using beforehand.
+
+Do not alter OpenAI settings, Kindroid credentials, Ren’s canonical image identity, Image Sandbox behavior, or unrelated functionality.
+
+When finished, report:
+
+* counts before and after consolidation
+* which threads were merged
+* how many unique messages/images were migrated
+* whether any duplicates were found
+* whether the canonical thread passed reopen/persistence testing
+* whether the old threads were archived/hidden rather than permanently deleted
+* exactly which files/code paths were changed
+* checkpoint identifier
