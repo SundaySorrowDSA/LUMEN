@@ -61,7 +61,9 @@ import {
   extractExplicitOpenAIQuestion,
 } from "../tools/openai-consultation-policy.js";
 import { InvalidPhotoError, preparePhotoContext } from "../tools/photo-analysis.js";
-import { extractImagePrompt, generate_image, generatedImageFromMetadata } from "../tools/image-generation.js";
+import { extractImagePrompt, generatedImageFromMetadata } from "../tools/image-generation.js";
+import { generateConversationImage } from "../tools/ren-image-prompt.js";
+import { getCurrentRenWardrobe } from "../tools/ren-wardrobe-state.js";
 import { deleteGeneratedImage, readGeneratedImage } from "../lib/generated-image-storage.js";
 import { TestImageError } from "../lib/test-image-generation.js";
 import {
@@ -510,7 +512,9 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     let storedPath: string | undefined;
     try {
       traceLog.info({ stage: "capability_dispatch", tool: "generate_image", conversationId: params.id, requestedBy: body.toolCall ? "tool_call" : "user_image_request" }, "Ren/LUMEN capability dispatcher");
-      const image = await generate_image(imagePrompt, { apiKey: openAiApiKey, logger: traceLog });
+      const image = await generateConversationImage(imagePrompt, {
+        apiKey: openAiApiKey, logger: traceLog, readWardrobe: getCurrentRenWardrobe,
+      });
       storedPath = image.objectPath;
       const result = await providerRouter.complete({
         requestedProvider: "kindroid",

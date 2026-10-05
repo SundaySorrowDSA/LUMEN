@@ -6,8 +6,13 @@ import { saveGeneratedImage } from "../lib/generated-image-storage.js";
 export function extractImagePrompt(content: string): string | null {
   const command = content.match(/^\s*(?:\/image\s+|generate_image\s*:\s*)([\s\S]+)$/i);
   if (command) return command[1].trim() || null;
-  const natural = content.match(/^\s*(?:please\s+)?(?:generate|create|make|draw)\s+(?:(?:me|us)\s+)?(?:an?\s+)?(?:image|picture|illustration)\s+(?:of|showing|depicting)\s+([\s\S]+)$/i);
-  return natural?.[1].trim() || null;
+  const natural = content.match(/^\s*(?:please\s+)?(?:generate|create|make|draw)\s+(?:(?:me|us)\s+)?(?:an?\s+)?(image|picture|illustration|selfie|portrait)\s+(?:of|showing|depicting)\s+([\s\S]+)$/i);
+  if (natural) {
+    const subject = natural[2].trim();
+    return /^(?:selfie|portrait)$/i.test(natural[1]) ? `${natural[1]} of ${subject}` : subject || null;
+  }
+  const renPortrait = content.match(/^\s*(?:please\s+)?(?:generate|create|make|draw)\s+(?:(?:me|us)\s+)?(?:an?\s+)?Ren\s+(selfie|portrait|image|picture)(?:\s+([\s\S]+))?[.!]?\s*$/i);
+  return renPortrait ? `${renPortrait[1]} of Ren${renPortrait[2] ? ` ${renPortrait[2].trim()}` : ''}` : null;
 }
 
 export const imageCapability = {
