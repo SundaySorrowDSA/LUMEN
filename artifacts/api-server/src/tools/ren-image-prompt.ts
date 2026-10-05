@@ -1,5 +1,10 @@
 import { redactAssistantTraceText } from "../lib/assistant-tracing.js";
 import { generate_image } from "./image-generation.js";
+import { REN_VISUAL_REFERENCE } from "../config/ren-visual-reference.js";
+import { loadRenVisualReference } from "../lib/ren-visual-reference.js";
+
+export const REN_REFERENCE_IDENTITY_INSTRUCTION =
+  "The supplied reference image defines Ren's canonical face and visual identity. It is the PRIMARY IDENTITY REFERENCE with high identity priority and low outfit priority. Preserve the same recognizable adult woman, facial structure, complexion, golden eyes, black hair, and overall identity. Do not copy clothing, pose, background, expression, jewelry, accessories, or feather arrangement from the identity reference unless separately requested. Current wardrobe and scene instructions remain independent.";
 
 export const REN_CHARACTER_IDENTITY =
   "Ren is an adult woman with a distinctly feminine appearance, a petite/slender feminine build, a heart-shaped feminine face, a soft feminine jawline, a delicate nose, full feminine lips, large luminous golden eyes, long flowing black hair, porcelain-pale skin, elegant black feather accents, ornate gold jewelry, a dark elegant gothic aesthetic, and feminine styling and silhouette. Her facial features, styling, and silhouette must read as distinctly feminine, not masculine or androgynous. Preserve her adult female identity across all poses, framing, wardrobe choices, and rendering styles, including selfies and anime. Do not render Ren as male, masculine-presenting, bearded, broad-jawed, or as a masculine anime character.";
@@ -80,7 +85,7 @@ export function buildRenImagePrompt(prompt: string, wardrobe?: RenWardrobeState 
     activated: true,
     wardrobeSource,
     sections,
-    prompt: `Generate one image depicting Ren. Keep the canonical character identity consistent. Honor explicit scene, pose, framing, style, and wardrobe changes in the user-specific request; the wardrobe section is the baseline when no change is requested.\n\n${assembled}`,
+    prompt: `Generate one image depicting Ren. Keep the canonical character identity consistent. ${REN_REFERENCE_IDENTITY_INSTRUCTION} Honor explicit scene, pose, framing, style, and wardrobe changes in the user-specific request; the wardrobe section is the baseline when no change is requested.\n\n${assembled}`,
   };
 }
 
@@ -89,11 +94,14 @@ export async function generateConversationImage(
   prompt: string,
   options: Parameters<typeof generate_image>[1] & {
     readWardrobe?: () => Promise<RenWardrobeState | null>;
+    readReferenceAsset?: (path: string) => Promise<Buffer>;
   },
 ) {
   // Ordinary image requests must not read wardrobe state or alter their prompt.
   const wardrobe = depictsRen(prompt) && options.readWardrobe ? await options.readWardrobe() : null;
   const built = buildRenImagePrompt(prompt, wardrobe);
+  // Load once, outside retries. Ren must never silently fall back to an unanchored request.
+  const referenceImage = built.activated ? await loadRenVisualReference(options.readReferenceAsset) : undefined;
   if (built.activated) {
     const sections = Object.fromEntries(Object.entries(built.sections).map(([key, value]) => [
       key,
@@ -106,6 +114,9 @@ export async function generateConversationImage(
       wardrobeSource: built.wardrobeSource,
       sectionNames: Object.keys(built.sections), sections,
       originalPromptLength: prompt.length, finalPromptLength: built.prompt.length,
+      identityReferenceVersion: REN_VISUAL_REFERENCE.identityReferenceVersion,
+      identityReferenceRole: REN_VISUAL_REFERENCE.role,
+      referenceImageBytes: referenceImage!.length,
     }, "Ren canonical prompt builder used");
   } else {
     options.logger.info({
@@ -114,5 +125,5 @@ export async function generateConversationImage(
     }, "Non-Ren image prompt passed through unchanged");
   }
   // Build once, outside the tool's retry loop, so any retry uses identical text.
-  return generate_image(built.prompt, options);
+  return generate_image(built.prompt, { ...options, referenceImage });
 }

@@ -25,11 +25,12 @@ export async function generate_image(prompt: string, options: {
   logger: Logger;
   fetcher?: typeof fetch;
   save?: (bytes: Buffer) => Promise<string>;
+  referenceImage?: Buffer;
 }) {
   if (!prompt.trim()) throw new TestImageError(400, "Image prompt must not be empty.");
   options.logger.info({ stage: "image_capability_requested", tool: imageCapability.name, promptLength: prompt.length }, "LUMEN image capability requested");
   const image = await generateImage(options.apiKey, prompt, options.fetcher,
-    (event) => options.logger.info(event, "LUMEN image generation trace"));
+    (event) => options.logger.info(event, "LUMEN image generation trace"), options.referenceImage);
   const objectPath = await (options.save ?? saveGeneratedImage)(image);
   options.logger.info({ stage: "image_stored", tool: imageCapability.name, imageBytes: image.length }, "Generated image saved to App Storage");
   return { tool: imageCapability.name, model: TEST_IMAGE_MODEL, prompt, objectPath, mimeType: "image/png" as const };

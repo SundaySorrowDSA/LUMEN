@@ -1,0 +1,59 @@
+Wire the approved canonical Ren face reference into the existing Ren image-generation pipeline.
+
+The project now contains a config exporting REN_VISUAL_REFERENCE, including the approved asset:
+
+artifacts/api-server/assets/characters/ren/ren-face-v1.png
+
+Start by inspecting the existing implementation before changing anything, especially:
+
+artifacts/api-server/src/tools/ren-image-prompt.ts
+
+and the actual image-provider/request adapter used after that prompt builder.
+
+Do not assume that mentioning the filename in text is sufficient. The actual image bytes/reference must be supplied to the currently connected image-generation provider in the provider-supported reference/input-image field whenever Ren is generated.
+
+For Ren image requests:
+
+* Load the canonical asset through REN_VISUAL_REFERENCE.
+* Treat it as Ren’s PRIMARY IDENTITY REFERENCE.
+* Preserve her recognizable face, facial structure, complexion, golden eyes, black hair, and overall identity.
+* Do NOT treat the clothing, pose, background, expression, jewelry, or feather arrangement visible in the reference image as mandatory.
+* Current scene and wardrobe instructions must remain independent.
+
+Add an identity instruction equivalent to:
+
+The supplied reference image defines Ren's canonical face and visual identity. Preserve the same recognizable woman. Do not copy clothing, pose, background, or accessories from the identity reference unless separately requested.
+
+Architectural constraints:
+
+* REN_VISUAL_REFERENCE must remain the single source of truth for the canonical asset.
+* Do not hard-code the image path independently in multiple places.
+* Do not alter non-Ren image generation.
+* Do not alter Kindroid behavior.
+* Do not alter chat persistence.
+* Do not alter wardrobe logic except as necessary to keep wardrobe separate from identity.
+* Do not alter existing image-provider routing or fallback behavior.
+* SpicyAPI is NOT connected yet and must not be referenced, implemented, stubbed, or routed to in this step.
+* Do not regenerate, edit, crop, resize, or overwrite ren-face-v1.png.
+
+Add or update tests verifying:
+
+1. Ren image requests receive the canonical reference image.
+2. The actual asset/reference is passed to the provider, not merely described in prompt text.
+3. Non-Ren image requests do not receive Ren’s reference.
+4. Wardrobe and scene instructions remain independent from identity.
+5. A missing or unreadable canonical Ren asset causes a clear error instead of silently generating an unanchored/random Ren.
+
+Run the relevant automated tests.
+
+Do NOT perform any live image generations yet.
+
+When finished, report:
+
+* exact files modified
+* how the canonical image travels from config → prompt/request builder → provider
+* confirmation that the currently connected provider receives the actual reference image
+* test results
+* confirmation that ren-face-v1.png itself was unchanged
+* confirmation that no unrelated runtime behavior changed
+* confirmation that no SpicyAPI code or routing was added

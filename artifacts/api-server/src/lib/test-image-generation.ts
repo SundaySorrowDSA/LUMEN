@@ -63,11 +63,14 @@ export async function generateTestImage(
   apiKey: string,
   prompt: string,
   fetcher: typeof fetch = fetch,
+  referenceImage?: Buffer,
 ): Promise<Buffer> {
   let response: Response;
   let payload: unknown;
   try {
-    response = await fetcher("https://api.openai.com/v1/images/generations", {
+    response = await fetcher(referenceImage
+      ? "https://api.openai.com/v1/images/edits"
+      : "https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -78,6 +81,9 @@ export async function generateTestImage(
         prompt,
         n: 1,
         output_format: "png",
+        ...(referenceImage ? {
+          images: [{ image_url: `data:image/png;base64,${referenceImage.toString("base64")}` }],
+        } : {}),
       }),
       signal: AbortSignal.timeout(120_000),
     });
@@ -124,11 +130,12 @@ export async function generateImage(
   prompt: string,
   fetcher: typeof fetch = fetch,
   onTrace: (event: Record<string, unknown>) => void = () => {},
+  referenceImage?: Buffer,
 ): Promise<Buffer> {
   for (let attempt = 1; attempt <= 2; attempt++) {
     onTrace({ stage: "image_generation_attempt", tool: "generate_image", model: TEST_IMAGE_MODEL, attempt, promptLength: prompt.length });
     try {
-      const image = await generateTestImage(apiKey, prompt, fetcher);
+      const image = await generateTestImage(apiKey, prompt, fetcher, referenceImage);
       onTrace({ stage: "image_generation_result", tool: "generate_image", attempt, imageBytes: image.length });
       return image;
     } catch (error) {

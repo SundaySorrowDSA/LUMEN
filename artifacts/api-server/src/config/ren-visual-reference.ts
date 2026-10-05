@@ -1,5 +1,5 @@
 /**
- * Approved reference metadata only. Not connected to the generation pipeline.
+ * Single source of truth for Ren's approved primary identity reference.
  */
 export const REN_VISUAL_REFERENCE = {
   character: "Ren",
