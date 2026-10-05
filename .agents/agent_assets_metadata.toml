@@ -28,3 +28,45 @@ mtime_ms = 1790347116024
 storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/fd3298cd-92ed-4663-bf59-bd12161f7577/72eb8a49-db17-4d20-ad3f-dd33cebc6510"
 storage_version_token = "1790347207264489"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "4OrR_7SYkwWWfUx0FLFe1"
+uri = "file://artifacts/api-server/assets/characters/ren/verification/face-v1/test-1-black-tshirt.png"
+type = "image"
+title = "Ren — Test 1: fitted black T-shirt"
+description = "Controlled live output using the approved face-reference bytes. Ordinary indoor room, relaxed pose, minimal jewelry."
+logical_id = "97e31d46-6e78-4c08-ad09-0817d43e6af2"
+content_hash = "sha256:ccdfd725b9dabf445d95486239a65bbd63498f9f3167895bdfb208a959c30cba"
+size = 1937036
+mtime_ms = 1791235292081
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/97e31d46-6e78-4c08-ad09-0817d43e6af2/f538ac01-b6a9-4ff2-ac93-deae5b78715f"
+storage_version_token = "1791235410637212"
+content_type = "image/png"
+
+[[outputs]]
+id = "47mZ7tsMTR2q2HOmKWZp7"
+uri = "file://artifacts/api-server/assets/characters/ren/verification/face-v1/test-2-black-hoodie.png"
+type = "image"
+title = "Ren — Test 2: black hoodie"
+description = "Controlled live output using the approved face-reference bytes. Outdoors in daylight, minimal accessories."
+logical_id = "d6115948-13df-4b6a-805e-147185ac9044"
+content_hash = "sha256:c3a66c9fffa9da5898d6ea3faf0d82d4342ba116a43dc27169b101a8df2db2a4"
+size = 1951322
+mtime_ms = 1791235308839
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/d6115948-13df-4b6a-805e-147185ac9044/a48a2e6d-0674-4132-933b-c8fa4d5e8688"
+storage_version_token = "1791235411236566"
+content_type = "image/png"
+
+[[outputs]]
+id = "fEpXcgw8ezGQwikjLrxzn"
+uri = "file://artifacts/api-server/assets/characters/ren/verification/face-v1/verification-report.txt"
+type = "text"
+title = "Ren face verification — full report"
+description = "Two successful outputs and the third scenario’s moderation failure, with exact prompts, reference-byte checks, saved paths, and unchanged-source evidence."
+logical_id = "2380ea32-615a-4021-82ce-8f8065a5d3df"
+content_hash = "sha256:b03c63617aa2e5957edc4887135893edad6287d6fc2c2bf47f1b6099d9f158bb"
+size = 18418
+mtime_ms = 1791235531042
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/2380ea32-615a-4021-82ce-8f8065a5d3df/eb8b4981-0e4d-4d74-838c-dcbb7ef39229"
+storage_version_token = "1791235531413670"
+content_type = "text/plain"

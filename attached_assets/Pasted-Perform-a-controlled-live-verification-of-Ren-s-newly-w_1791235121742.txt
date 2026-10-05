@@ -1,0 +1,63 @@
+Perform a controlled live verification of Ren’s newly wired canonical face reference.
+
+The purpose of this test is ONLY to verify identity consistency. Do not modify the canonical asset, identity configuration, prompt architecture, wardrobe system, provider routing, or any other code unless a genuine runtime defect prevents the test from executing.
+
+Use the existing currently connected image provider.
+
+SpicyAPI is not connected and must not be referenced, implemented, or simulated.
+
+Generate exactly THREE Ren test images using the normal production Ren image pipeline so that the same path used by real Ren image requests is exercised.
+
+Use these three deliberately simple scenarios:
+
+Test 1
+
+* simple fitted black T-shirt
+* ordinary indoor room
+* relaxed neutral pose
+* minimal jewelry
+
+Test 2
+
+* simple black hoodie
+* outdoors during daytime
+* relaxed standing pose
+* minimal accessories
+
+Test 3
+
+* simple black sleeveless top
+* casually seated at home
+* minimal jewelry
+* relaxed natural expression
+
+Important:
+
+* Do not over-elaborate Ren’s clothing.
+* Do not add fantasy gowns, armor, corsets, elaborate celestial robes, excessive gold ornamentation, crowns, or large decorative feather arrangements.
+* Her canonical reference image defines HER FACE, not her outfit.
+* Preserve the recognizable face, facial structure, complexion, golden eyes, black hair, and overall identity from ren-face-v1.png.
+* Different clothing, pose, lighting, and environment should NOT substantially change who she looks like.
+
+For all three generations, verify that the actual canonical image reference is supplied to the provider, not merely described in prompt text.
+
+Save all three generated test images separately from:
+
+ren-face-v1.png
+
+Never overwrite, alter, crop, resize, recompress, or regenerate the canonical image.
+
+After generation, compare all three test images against the canonical reference and report:
+
+1. whether all three appear to depict the same recognizable woman
+2. any facial identity drift observed in each image
+3. whether the canonical reference image was actually passed to the provider on each request
+4. which provider and image model handled each generation
+5. the assembled identity instruction and scene/wardrobe instruction for each test
+6. where each generated test image was saved
+7. whether any retry, fallback, moderation event, or error occurred
+8. confirmation that ren-face-v1.png remained byte-for-byte unchanged
+
+Do not automatically change prompts or code based on the results.
+
+If one or more images drift, stop after reporting the drift so we can decide how to correct it.
