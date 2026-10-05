@@ -8,3 +8,9 @@ The user confirmed that the original crow prompt generated an image successfully
 **Why:** A prompt-specific 400 after a successful generation is not, by itself, evidence that the model or credentials are wrong. The user explicitly requested preserving the working model, API key, and image settings during diagnosis.
 
 **How to apply:** Inspect the actual upstream error before recommending image configuration changes. Use the successful crow test as the baseline; do not substitute a model or credentials merely to work around a custom-prompt failure.
+
+The custom portrait retry returned `moderation_blocked` / `image_generation_user_error`. The complete provider body identified the moderation stage as `output`, with category `sexual`.
+
+**Why:** The structured HTTP 400 was a generated-output safety rejection, not a model-access or credential failure. The visible prompt alone did not reveal that distinction.
+
+**How to apply:** Check `moderation_details.moderation_stage` in development logs before attributing a moderation block to the submitted prompt. Do not infer the contents of an image that the provider withheld.
