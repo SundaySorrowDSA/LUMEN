@@ -5,6 +5,12 @@ description: User-defined Ren identity and its separation from wardrobe and scen
 
 The user's approved face reference is Ren's visual source of truth. Its clothing, pose, background, expression, jewelry, and feather arrangement are not mandatory.
 
+Include subtle, natural black feather adornments in Ren's hair by default unless the current scene or wardrobe explicitly calls for otherwise. Feathers are a secondary Ren marker, not part of her facial identity. The canonical face has highest priority. Do not add oversized feather crowns, elaborate headdresses, excessive fantasy ornamentation, or greater jewelry/outfit complexity.
+
+**Why:** The user requested this secondary default cue while preserving variable clothing, pose, background, and activity.
+
+**How to apply:** Treat hair feathers as an overridable visual default, never as a reason to change the approved face or require a particular outfit.
+
 Ren's supporting canonical text description is: adult woman; distinctly feminine appearance; petite/slender feminine build; heart-shaped feminine face; soft feminine jawline; delicate nose; full feminine lips; large luminous golden eyes; long flowing black hair; porcelain-pale skin; elegant black feather accents; ornate gold jewelry; dark elegant gothic aesthetic; feminine styling and silhouette.
 
 Ren must not be rendered as male, masculine-presenting, bearded, broad-jawed, or as a masculine anime character.

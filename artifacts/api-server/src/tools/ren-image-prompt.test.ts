@@ -102,6 +102,23 @@ test("the three requested examples use the shared image tool with the correct pr
   }
 });
 
+test("Ren receives a conditional secondary hair-feather cue without changing identity or non-Ren prompts", () => {
+  for (const prompt of ["Ren at home.", "Ren wearing a plain hoodie without feathers or hair accessories outdoors."]) {
+    const result = buildRenImagePrompt(prompt);
+    assert.equal(result.activated, true);
+    if (!result.activated) continue;
+    assert.equal(result.sections.characterIdentity, REN_CHARACTER_IDENTITY);
+    assert.match(result.prompt, /Include subtle, natural black feather adornments in Ren's hair by default unless the current scene or wardrobe explicitly calls for otherwise\./);
+    assert.match(result.prompt, /Feathers are a secondary Ren marker, not part of her facial identity; the canonical face remains the highest-priority identity reference\./);
+    assert.match(result.prompt, /Do not create oversized feather crowns, elaborate headdresses, or excessive fantasy ornamentation, or increase jewelry or outfit complexity\./);
+    assert.match(result.prompt, /Clothing, pose, background, and activity remain variable\./);
+    assert.equal(result.sections.userRequestDetails, prompt);
+    assert.match(result.prompt, /Honor explicit scene, pose, framing, style, and wardrobe changes in the user-specific request/);
+  }
+  const nonRen = "A tiny blue robot beside a gold coin.";
+  assert.deepEqual(buildRenImagePrompt(nonRen), { activated: false, prompt: nonRen });
+});
+
 test("wardrobe state and accessories replace the default without altering canonical identity", () => {
   const result = buildRenImagePrompt("Ren reading by a window.", {
     outfit: "A deep violet velvet coat.", accessories: "A gold raven brooch.",
