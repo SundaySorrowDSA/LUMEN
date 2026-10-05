@@ -9,6 +9,18 @@ import * as zod from 'zod';
 
 
 /**
+ * @summary Open the isolated image generation test page
+ */
+export const GetTestImagePageResponse = zod.unknown()
+
+
+/**
+ * @summary Generate one crow image using the fixed test prompt
+ */
+export const GenerateTestImageResponse = zod.unknown()
+
+
+/**
  * Returns server health status
  * @summary Health check
  */

@@ -13,6 +13,36 @@ tags:
   - name: assistant
     description: Personal assistant workspace operations
 paths:
+  /test-image:
+    get:
+      operationId: getTestImagePage
+      summary: Open the isolated image generation test page
+      responses:
+        "200":
+          description: Test page; opening it does not generate an image
+          content:
+            text/html:
+              schema:
+                type: string
+    post:
+      operationId: generateTestImage
+      summary: Generate one crow image using the fixed test prompt
+      responses:
+        "200":
+          description: Generated PNG bytes, suitable for an image element or blob URL
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "429":
+          description: Another image generation test is already running
+        "502":
+          description: OpenAI failed or returned an invalid image
+        "503":
+          description: OPENAI_API_KEY is not configured
+        "504":
+          description: OpenAI image generation timed out
   /healthz:
     get:
       operationId: healthCheck
