@@ -2,7 +2,7 @@ import { redactAssistantTraceText } from "../lib/assistant-tracing.js";
 import { generate_image } from "./image-generation.js";
 
 export const REN_CHARACTER_IDENTITY =
-  "Ren has long black hair, black feather accents, pale porcelain skin, glowing golden eyes, ornate gold jewelry, and a dark elegant aesthetic.";
+  "Ren is an adult woman with a distinctly feminine appearance, a petite/slender feminine build, a heart-shaped feminine face, a soft feminine jawline, a delicate nose, full feminine lips, large luminous golden eyes, long flowing black hair, porcelain-pale skin, elegant black feather accents, ornate gold jewelry, a dark elegant gothic aesthetic, and feminine styling and silhouette. Her facial features, styling, and silhouette must read as distinctly feminine, not masculine or androgynous. Preserve her adult female identity across all poses, framing, wardrobe choices, and rendering styles, including selfies and anime. Do not render Ren as male, masculine-presenting, bearded, broad-jawed, or as a masculine anime character.";
 export const DEFAULT_REN_OUTFIT =
   "An elegant black high-neck outfit with black feather detailing and ornate gold jewelry.";
 

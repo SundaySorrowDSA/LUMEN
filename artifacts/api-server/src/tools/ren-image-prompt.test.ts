@@ -63,13 +63,21 @@ test("the three requested examples use the shared image tool with the correct pr
     if (example.activated) {
       assert.deepEqual(builtEvent?.sectionNames, sectionNames);
       assert.equal(builtEvent?.wardrobeSource, "canonical_fallback");
-      for (const trait of ["long black hair", "black feather accents", "pale porcelain skin", "glowing golden eyes", "ornate gold jewelry", "dark elegant aesthetic"]) {
+      for (const trait of [
+        "adult woman", "distinctly feminine appearance", "petite/slender feminine build",
+        "heart-shaped feminine face", "soft feminine jawline", "delicate nose",
+        "full feminine lips", "large luminous golden eyes", "long flowing black hair",
+        "porcelain-pale skin", "elegant black feather accents", "ornate gold jewelry",
+        "dark elegant gothic aesthetic", "feminine styling and silhouette",
+      ]) {
         assert.ok(requests[0].prompt.includes(trait));
       }
+      assert.match(requests[0].prompt, /Do not render Ren as male, masculine-presenting, bearded, broad-jawed, or as a masculine anime character\./);
       assert.ok(requests[0].prompt.includes(DEFAULT_REN_OUTFIT));
       assert.ok(requests[0].prompt.includes(example.scene!));
       assert.ok(requests[0].prompt.includes(rawPrompt));
       const sections = builtEvent?.sections as Record<string, string>;
+      assert.equal(sections.characterIdentity, REN_CHARACTER_IDENTITY);
       assert.ok(sections.scene.includes(example.scene!));
       if (example.request.includes("selfie")) assert.match(sections.poseAndFraming, /arm's-length selfie/);
       else assert.match(sections.poseAndFraming, /reading/);
