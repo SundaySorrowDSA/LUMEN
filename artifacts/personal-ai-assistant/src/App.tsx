@@ -53,13 +53,14 @@ import {
 } from '@/lib/optimistic-messages';
 import { imageFromPasteDetails, photoReadyForSend, resizePhoto } from '@/lib/photo';
 import {
-  deleteLocalPhotos, loadLocalPhotos, persistSentPhoto, photoMessageText,
+  deleteLocalPhotos, loadConversationPhotos, persistSentPhoto, photoMessageText,
   photoUrlForMessage, type LocalPhotoUrls,
 } from '@/lib/local-photos';
 import { PhotoViewer } from '@/components/photo-viewer';
 import { PhotoDiagnosticDetail } from '@/components/photo-diagnostic-detail';
 import { TestImageControl } from '@/components/test-image-control';
 import { ConversationGeneratedImage } from '@/components/conversation-generated-image';
+import { ACTIVE_CONVERSATION_KEY, readActiveConversation, resolveConversationSelection } from '@/lib/conversation-selection';
 import { readTestImageError } from '@/lib/test-image-errors';
 import {
   readPhotoDiagnostics, updatePhotoDiagnostic,
@@ -452,7 +453,7 @@ function Workspace() {
   const conversationsQuery = useListAssistantConversations();
   const overview = overviewQuery.data;
   const conversations = conversationsQuery.data ?? [];
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(readActiveConversation);
   const [composer, setComposer] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoSource, setPhotoSource] = useState<PhotoSource | null>(null);
@@ -486,11 +487,18 @@ function Workspace() {
   const keepLatestVisibleRef = useRef(false);
   const assistantTraceIdRef = useRef<string | null>(null);
   const assistantTraceHeadersRef = useRef<Record<string, string>>({});
-  const selected = selectedId ?? overview?.activeConversationId ?? conversations[0]?.id ?? null;
+  const selected = resolveConversationSelection(selectedId, conversations, overview?.activeConversationId);
+  useEffect(() => {
+    if (selected === null) return;
+    try { localStorage.setItem(ACTIVE_CONVERSATION_KEY, String(selected)); } catch { /* Selection still works without browser storage. */ }
+  }, [selected]);
   const detailQuery = useGetAssistantConversation(selected ?? 0, {
     query: { enabled: !!selected, queryKey: getGetAssistantConversationQueryKey(selected ?? 0) },
     request: { headers: assistantTraceHeadersRef.current },
   });
+  const importedPhotoLookupKey = detailQuery.data?.messages
+    .filter((message) => message.metadata?.includes('"threadConsolidation"'))
+    .map((message) => message.id).join(',') ?? '';
   const createConversation = useCreateAssistantConversation();
   const deleteConversation = useDeleteAssistantConversation();
   const sendMessage = useSendAssistantMessage({
@@ -537,7 +545,7 @@ function Workspace() {
       conversationId: selected, status: 'loading', checkedAt: 0, foundIds: new Set(),
     });
     if (selected === null) return;
-    void loadLocalPhotos(selected).then((photos) => {
+    void loadConversationPhotos(selected, detailQuery.data?.messages ?? []).then((photos) => {
       if (disposed) return;
       setPhotoLookup({
         conversationId: selected, status: 'ready', checkedAt: Date.now(),
@@ -566,7 +574,7 @@ function Workspace() {
       disposed = true;
       urls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [selected]);
+  }, [selected, importedPhotoLookupKey]);
 
   useLayoutEffect(() => {
     if (scrollAfterPhotosRef.current && messagesRef.current) {

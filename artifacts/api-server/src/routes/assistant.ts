@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne } from "drizzle-orm";
 import {
   CreateAssistantConversationBody,
   CreateAssistantMemoryBody,
@@ -237,8 +237,9 @@ const connectionCatalog = [
 let workspaceSeedPromise: Promise<typeof assistantConversationsTable.$inferSelect> | null = null;
 
 async function seedWorkspace() {
-  const existing = await db.select().from(assistantConversationsTable).limit(1);
-  let conversation = existing[0];
+  const existing = await db.select().from(assistantConversationsTable)
+    .where(isNull(assistantConversationsTable.archivedAt)).orderBy(asc(assistantConversationsTable.id));
+  let conversation = existing.find((thread) => thread.title === "A place to think") ?? existing[0];
 
   if (!conversation) {
     [conversation] = await db
@@ -323,7 +324,7 @@ async function getConversationWithMessages(id: number) {
     .select()
     .from(assistantMessagesTable)
     .where(eq(assistantMessagesTable.conversationId, id))
-    .orderBy(assistantMessagesTable.createdAt);
+    .orderBy(assistantMessagesTable.createdAt, assistantMessagesTable.id);
 
   return {
     id: conversation.id,
@@ -339,7 +340,7 @@ router.get("/assistant/overview", async (_req, res) => {
   const activeProviderId = await getActiveProviderId();
   const activeProvider = providerRouter.list().find((provider) => provider.id === activeProviderId) ?? providerRouter.list()[0];
   const [conversations, memory, messages] = await Promise.all([
-    db.select().from(assistantConversationsTable),
+    db.select().from(assistantConversationsTable).where(isNull(assistantConversationsTable.archivedAt)),
     db.select().from(assistantMemoryTable),
     db.select().from(assistantMessagesTable).orderBy(desc(assistantMessagesTable.createdAt)).limit(4),
   ]);
@@ -406,12 +407,17 @@ router.get("/assistant/conversations", async (_req, res) => {
   const conversations = await db
     .select()
     .from(assistantConversationsTable)
+    .where(isNull(assistantConversationsTable.archivedAt))
     .orderBy(desc(assistantConversationsTable.updatedAt));
   const data = await Promise.all(conversations.map(conversationSummary));
   res.json(ListAssistantConversationsResponse.parse(data));
 });
 
 router.post("/assistant/conversations", async (req, res) => {
+  if (process.env.NODE_ENV === "test" || req.get("X-Lumen-Test-Mode") === "isolated") {
+    res.status(409).json({ error: "Automated verification must use non-persistent fixtures, not workspace threads." });
+    return;
+  }
   const body = CreateAssistantConversationBody.parse(req.body);
   const [conversation] = await db
     .insert(assistantConversationsTable)
@@ -452,18 +458,35 @@ router.get("/assistant/conversations/:id/messages/:messageId/image", async (req,
 
 router.delete("/assistant/conversations/:id", async (req, res) => {
   const params = GetAssistantConversationParams.parse(req.params);
+  const [thread] = await db.select().from(assistantConversationsTable).where(eq(assistantConversationsTable.id, params.id));
+  if (thread?.archivedAt) {
+    res.status(409).json({ error: "Archived conversations are retained for rollback and cannot be permanently deleted here." });
+    return;
+  }
   const messages = await db.select().from(assistantMessagesTable).where(eq(assistantMessagesTable.conversationId, params.id));
+  const otherMessages = await db.select().from(assistantMessagesTable).where(ne(assistantMessagesTable.conversationId, params.id));
+  const retainedImages = new Set(otherMessages.map((message) => generatedImageFromMetadata(message.metadata)?.objectPath).filter(Boolean));
   await db.delete(assistantMessagesTable).where(eq(assistantMessagesTable.conversationId, params.id));
   await db.delete(assistantConversationsTable).where(eq(assistantConversationsTable.id, params.id));
   for (const message of messages) {
     const image = generatedImageFromMetadata(message.metadata);
-    if (image) await deleteGeneratedImage(image.objectPath).catch(() =>
+    if (image && !retainedImages.has(image.objectPath)) await deleteGeneratedImage(image.objectPath).catch(() =>
       req.log.warn({ stage: "generated_image_cleanup_failed", conversationId: params.id }, "Deleted thread image cleanup failed"));
   }
   res.status(204).send();
 });
 
 router.post("/assistant/conversations/:id/messages", async (req, res) => {
+  if (process.env.NODE_ENV === "test" || req.get("X-Lumen-Test-Mode") === "isolated") {
+    res.status(409).json({ error: "Automated verification must use non-persistent message fixtures." });
+    return;
+  }
+  const [targetThread] = await db.select().from(assistantConversationsTable)
+    .where(eq(assistantConversationsTable.id, Number(req.params.id)));
+  if (targetThread?.archivedAt) {
+    res.status(409).json({ error: "This conversation is archived. Continue in A place to think." });
+    return;
+  }
   const traceId = resolveAssistantTraceId(req.get(ASSISTANT_TRACE_HEADER));
   res.setHeader(ASSISTANT_TRACE_HEADER, traceId);
   const traceLog = req.log.child({

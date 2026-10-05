@@ -52,6 +52,15 @@ Lumen is a personal AI workspace that keeps one assistant personality across con
 
 _Populate as you build — explicit user instructions worth remembering across sessions._
 
+### Ren conversations and automated verification
+
+- `A place to think` is Ren's canonical persistent conversation and the default thread.
+- Automated tests and verification must not create persistent user-visible threads unless the user explicitly requests them. Use in-memory fixtures, mocked transport, or rolled-back database transactions.
+- Tests must never change the user's active conversation. Browser checks run in an isolated context and leave the user's session untouched.
+- Mark diagnostic HTTP requests with `X-Lumen-Test-Mode: isolated`; conversation/message writes reject this mode. Never omit this header to work around the guard.
+- Preserve source threads and original metadata during consolidation; archive only after counts, image retrieval, and reopen checks pass.
+- Conversation photo attachments are browser-local. Imported records must retain their original thread/message provenance so the same browser can still resolve their thumbnails.
+
 ## Gotchas
 
 _Populate as you build — sharp edges, "always run X before Y" rules._

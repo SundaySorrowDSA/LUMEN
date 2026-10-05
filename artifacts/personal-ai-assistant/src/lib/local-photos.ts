@@ -126,6 +126,39 @@ export async function deleteLocalPhotos(conversationId: number): Promise<void> {
   }
 }
 
+/** Resolve imported photos from their original browser-only records without deleting them. */
+export async function loadConversationPhotos(
+  conversationId: number,
+  messages: Array<{ id: number; metadata?: string | null }>,
+  load = loadLocalPhotos,
+): Promise<StoredPhoto[]> {
+  const photos = await load(conversationId);
+  const byMessage = new Map(photos.map((photo) => [photo.messageId, photo]));
+  const sources = new Map<number, Array<{ sourceMessageId: number; destinationMessageId: number }>>();
+  for (const message of messages) {
+    if (!message.metadata) continue;
+    let metadata;
+    try { metadata = JSON.parse(message.metadata); } catch { continue; }
+    const origin = metadata?.threadConsolidation;
+    if (!Number.isSafeInteger(origin?.sourceConversationId) || !Number.isSafeInteger(origin?.sourceMessageId)) continue;
+    const mapping = sources.get(origin.sourceConversationId) ?? [];
+    mapping.push({ sourceMessageId: origin.sourceMessageId, destinationMessageId: message.id });
+    sources.set(origin.sourceConversationId, mapping);
+  }
+  await Promise.all([...sources].map(async ([sourceId, mappings]) => {
+    const originals = new Map((await load(sourceId)).map((photo) => [photo.messageId, photo]));
+    for (const mapping of mappings) {
+      const original = originals.get(mapping.sourceMessageId);
+      if (original && !byMessage.has(mapping.destinationMessageId)) {
+        byMessage.set(mapping.destinationMessageId, {
+          ...original, conversationId, messageId: mapping.destinationMessageId,
+        });
+      }
+    }
+  }));
+  return [...byMessage.values()];
+}
+
 export function photoMessageText(content: string, hasLocalPhoto: boolean): string {
   return hasLocalPhoto && content.startsWith('[Photo attached]')
     ? content.slice('[Photo attached]'.length).replace(/^\n/, '')

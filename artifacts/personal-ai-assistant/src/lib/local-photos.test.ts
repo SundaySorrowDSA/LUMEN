@@ -1,9 +1,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  persistSentPhoto, photoDataUrlToBlob, photoMessageText, photoUrlForMessage,
+  loadConversationPhotos, persistSentPhoto, photoDataUrlToBlob, photoMessageText, photoUrlForMessage,
   type LocalPhotoUrls,
 } from './local-photos.ts';
+
+test('imported attachments resolve original browser photos without moving or deleting them', async () => {
+  const blob = new Blob(['fixture'], { type: 'image/jpeg' });
+  const original = { conversationId: 19, messageId: 150, blob };
+  const imported = await loadConversationPhotos(1, [{
+    id: 200, metadata: JSON.stringify({ threadConsolidation: {
+      sourceConversationId: 19, sourceMessageId: 150,
+    } }),
+  }], async (id) => id === 19 ? [original] : []);
+  assert.deepEqual(imported, [{ conversationId: 1, messageId: 200, blob }]);
+  assert.equal(original.conversationId, 19);
+  assert.equal(original.messageId, 150);
+});
 
 test('local copy retains the compressed JPEG bytes instead of the original file', async () => {
   const bytes = [0xff, 0xd8, 0xff, 0xd9];

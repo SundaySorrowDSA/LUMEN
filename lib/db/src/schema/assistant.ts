@@ -7,6 +7,7 @@ export const assistantConversationsTable = pgTable("assistant_conversations", {
   title: text("title").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
 });
 
 export const assistantMessagesTable = pgTable("assistant_messages", {
