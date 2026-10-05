@@ -67,9 +67,13 @@ export function TestImageControl() {
   };
 
   return (
+    <details className="shrink-0 border-b border-border bg-background" data-testid="dev-tools">
+      <summary className="cursor-pointer px-5 py-2.5 text-xs text-muted-foreground sm:px-8" data-testid="button-dev-tools">
+        Dev Tools · Image Sandbox
+      </summary>
     <section
       aria-label="Temporary image generation test"
-      className="shrink-0 border-b border-border bg-primary/[.04] px-5 py-2 sm:px-8"
+      className="max-h-[55dvh] overflow-y-auto bg-primary/[.04] px-5 py-2 sm:px-8"
       data-testid="test-image-control"
     >
       <div className="flex items-center justify-between gap-3">
@@ -144,5 +148,6 @@ export function TestImageControl() {
         </figure>
       )}
     </section>
+    </details>
   );
 }

@@ -229,6 +229,88 @@ export const useGenerateTestImage = <TError = ErrorType<void | TestImageFailure>
       return useMutation(getGenerateTestImageMutationOptions(options));
     }
 
+export const getGetConversationGeneratedImageUrl = (id: number,
+    messageId: number,) => {
+
+
+
+
+  return `/api/assistant/conversations/${id}/messages/${messageId}/image`
+}
+
+/**
+ * @summary Read the generated image attached to a conversation message
+ */
+export const getConversationGeneratedImage = async (id: number,
+    messageId: number, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetConversationGeneratedImageUrl(id,messageId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetConversationGeneratedImageQueryKey = (id: number,
+    messageId: number,) => {
+    return [
+    `/api/assistant/conversations/${id}/messages/${messageId}/image`
+    ] as const;
+    }
+
+
+export const getGetConversationGeneratedImageQueryOptions = <TData = Awaited<ReturnType<typeof getConversationGeneratedImage>>, TError = ErrorType<void>>(id: number,
+    messageId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getConversationGeneratedImage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetConversationGeneratedImageQueryKey(id,messageId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getConversationGeneratedImage>>> = ({ signal }) => getConversationGeneratedImage(id,messageId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined && messageId !== null && messageId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getConversationGeneratedImage>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetConversationGeneratedImageQueryResult = NonNullable<Awaited<ReturnType<typeof getConversationGeneratedImage>>>
+export type GetConversationGeneratedImageQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read the generated image attached to a conversation message
+ */
+
+export function useGetConversationGeneratedImage<TData = Awaited<ReturnType<typeof getConversationGeneratedImage>>, TError = ErrorType<void>>(
+ id: number,
+    messageId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getConversationGeneratedImage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetConversationGeneratedImageQueryOptions(id,messageId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getHealthCheckUrl = () => {
 
 

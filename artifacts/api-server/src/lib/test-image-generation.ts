@@ -13,6 +13,7 @@ export class TestImageError extends Error {
       body: string;
       error: OpenAiImageError;
     },
+    public readonly retryable = false,
   ) {
     super(message);
   }
@@ -51,7 +52,10 @@ async function readDevelopmentDiagnostics(response: Response, apiKey: string) {
     type: field("type"),
     param: field("param"),
   };
-  return { body: redactCredentials(rawBody, apiKey), error };
+  const moderation = providerError.moderation_details as { moderation_stage?: unknown } | undefined;
+  const retryable = [408, 429, 500, 502, 503, 504].includes(response.status) ||
+    (providerError.code === "moderation_blocked" && moderation?.moderation_stage === "output");
+  return { body: redactCredentials(rawBody, apiKey), error, retryable };
 }
 
 /** One transient Images API request, unrelated to the conversation provider router. */
@@ -78,23 +82,22 @@ export async function generateTestImage(
       signal: AbortSignal.timeout(120_000),
     });
     if (!response.ok) {
-      const diagnostics = process.env.NODE_ENV === "development"
-        ? await readDevelopmentDiagnostics(response, apiKey)
-        : undefined;
+      const details = await readDevelopmentDiagnostics(response, apiKey);
       throw new TestImageError(
         502,
         `OpenAI image generation failed (HTTP ${response.status}). Check model access and server-side configuration.`,
         response.status,
-        diagnostics,
+        process.env.NODE_ENV === "development" ? details : undefined,
+        details.retryable,
       );
     }
     payload = await response.json();
   } catch (error) {
     if (error instanceof TestImageError) throw error;
     if (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name)) {
-      throw new TestImageError(504, "OpenAI image generation timed out. Please try again.");
+      throw new TestImageError(504, "OpenAI image generation timed out. Please try again.", undefined, undefined, true);
     }
-    throw new TestImageError(502, "OpenAI image generation could not return a valid response.");
+    throw new TestImageError(502, "OpenAI image generation could not return a valid response.", undefined, undefined, error instanceof TypeError);
   }
 
   const encoded = (payload as { data?: Array<{ b64_json?: unknown }> } | null)
@@ -113,4 +116,35 @@ export async function generateTestImage(
     throw new TestImageError(502, "OpenAI did not return a valid PNG image.");
   }
   return bytes;
+}
+
+/** Shared bounded orchestration. Both sandbox and generate_image use this path. */
+export async function generateImage(
+  apiKey: string,
+  prompt: string,
+  fetcher: typeof fetch = fetch,
+  onTrace: (event: Record<string, unknown>) => void = () => {},
+): Promise<Buffer> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    onTrace({ stage: "image_generation_attempt", tool: "generate_image", model: TEST_IMAGE_MODEL, attempt, promptLength: prompt.length });
+    try {
+      const image = await generateTestImage(apiKey, prompt, fetcher);
+      onTrace({ stage: "image_generation_result", tool: "generate_image", attempt, imageBytes: image.length });
+      return image;
+    } catch (error) {
+      const failure = error instanceof TestImageError ? error : new TestImageError(502, "Image generation failed.");
+      onTrace({
+        stage: "image_generation_attempt_failed",
+        tool: "generate_image",
+        attempt,
+        upstreamStatus: failure.upstreamStatus,
+        ...(process.env.NODE_ENV === "development" && failure.developmentDiagnostics
+          ? { openaiResponseBody: failure.developmentDiagnostics.body, openaiError: failure.developmentDiagnostics.error }
+          : {}),
+      });
+      if (attempt === 2 || !failure.retryable) throw failure;
+      onTrace({ stage: "image_generation_retry", tool: "generate_image", nextAttempt: 2, identicalPrompt: true });
+    }
+  }
+  throw new TestImageError(502, "Image generation failed.");
 }

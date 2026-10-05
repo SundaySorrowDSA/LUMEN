@@ -59,6 +59,8 @@ import {
 import { PhotoViewer } from '@/components/photo-viewer';
 import { PhotoDiagnosticDetail } from '@/components/photo-diagnostic-detail';
 import { TestImageControl } from '@/components/test-image-control';
+import { ConversationGeneratedImage } from '@/components/conversation-generated-image';
+import { readTestImageError } from '@/lib/test-image-errors';
 import {
   readPhotoDiagnostics, updatePhotoDiagnostic,
   type PhotoDiagnostic, type PhotoSource,
@@ -778,6 +780,13 @@ function Workspace() {
         qc.invalidateQueries({ queryKey: getGetAssistantOverviewQueryKey() });
       },
       onError: async (error) => {
+        const imageError = readTestImageError(error);
+        if (imageError) toast({
+          title: 'Image generation failed',
+          description: `OpenAI HTTP ${imageError.status}: ${imageError.message} · code: ${imageError.code ?? '(not provided)'} · type: ${imageError.type ?? '(not provided)'} · param: ${imageError.param ?? '(not provided)'}`,
+          variant: 'destructive',
+          duration: 30000,
+        });
         console.error('[assistant-trace]', {
           traceId,
           traceVersion: ASSISTANT_TRACE_VERSION,
@@ -865,7 +874,8 @@ function Workspace() {
                   message.content.startsWith('[Photo attached]') && !photoUrl && !diagnostic?.dismissed;
                return <div key={message.id} className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`} data-testid={`message-${message.id}`}>
                  <div className={`max-w-[88%] ${message.role === 'user' ? `rounded-lg rounded-br-md px-4 py-3 text-primary-foreground ${isOptimistic && message.status === 'failed' ? 'bg-destructive/80' : 'bg-primary'}` : 'pt-1'}`}>
-                   {photoUrl && <button type="button" onClick={() => setViewerMessageId(Number(message.id))} aria-label="View attached photo full screen" className="block overflow-hidden rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" data-testid={`button-photo-thumbnail-${message.id}`}><img src={photoUrl} alt="Attached photo thumbnail" className="h-24 w-24 object-cover" /></button>}
+                    {!isOptimistic && message.role === 'assistant' && <ConversationGeneratedImage conversationId={Number(message.conversationId)} messageId={Number(message.id)} metadata={message.metadata} />}
+                    {photoUrl && <button type="button" onClick={() => setViewerMessageId(Number(message.id))} aria-label="View attached photo full screen" className="block overflow-hidden rounded-md focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-white" data-testid={`button-photo-thumbnail-${message.id}`}><img src={photoUrl} alt="Attached photo thumbnail" className="h-24 w-24 object-cover" /></button>}
                    {text && <div className={`whitespace-pre-wrap text-[14px] leading-7 ${photoUrl ? 'mt-2' : ''} ${message.role === 'assistant' ? 'text-foreground/85' : ''}`}>{text}</div>}
                     {showDiagnostic && <PhotoDiagnosticDetail conversationId={conversationId} messageId={messageId} diagnostic={diagnostic} lookup={lookup} onDismiss={() => recordPhotoDiagnostic(conversationId, messageId, { dismissed: true })} />}
                    <div className={`mt-2 font-mono text-[9px] uppercase tracking-[.12em] ${message.role === 'user' ? 'text-primary-foreground/55' : 'text-muted-foreground'}`}>{isOptimistic ? (message.status === 'failed' ? 'Not sent · text preserved' : 'Sending…') : message.role === 'assistant' ? `${message.model ?? overview?.model ?? 'Lumen'} · ${formatDate(message.createdAt)}` : formatDate(message.createdAt)}</div>

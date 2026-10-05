@@ -14,3 +14,9 @@ The custom portrait retry returned `moderation_blocked` / `image_generation_user
 **Why:** The structured HTTP 400 was a generated-output safety rejection, not a model-access or credential failure. The visible prompt alone did not reveal that distinction.
 
 **How to apply:** Check `moderation_details.moderation_stage` in development logs before attributing a moderation block to the submitted prompt. Do not infer the contents of an image that the provider withheld.
+
+Keep image generation explicitly requested: the Image Sandbox is temporary experimentation, while conversation capability output is persistent.
+
+**Why:** Sharing the working OpenAI transport must not silently turn sandbox experiments into conversation history or charge for ordinary discussion of images. The user required keeping normal conversation and Kindroid integration unchanged.
+
+**How to apply:** Reuse generation and bounded retries across both paths, but leave persistence with the conversation caller. Dispatch paid generation from explicit image requests or structured capability calls, not arbitrary mentions.

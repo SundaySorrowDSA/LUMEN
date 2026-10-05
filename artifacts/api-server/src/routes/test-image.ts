@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { GenerateTestImageBody } from "@workspace/api-zod";
 import {
-  generateTestImage,
+  generateImage,
   TEST_IMAGE_MODEL,
   TEST_IMAGE_PROMPT,
   TestImageError,
@@ -102,7 +102,8 @@ export function createTestImageRouter(options: {
     }
     generating = true;
     try {
-      const image = await generateTestImage(apiKey, parsed.data.prompt.trim(), options.fetcher);
+      const image = await generateImage(apiKey, parsed.data.prompt.trim(), options.fetcher,
+        (event) => req.log.info(event, "Image Sandbox generation trace"));
       req.log.info(
         { stage: "test_image_completed", model: TEST_IMAGE_MODEL, imageCount: 1, imageBytes: image.length },
         "Isolated OpenAI image test completed",

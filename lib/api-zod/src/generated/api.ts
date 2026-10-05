@@ -30,6 +30,17 @@ export const GenerateTestImageResponse = zod.unknown()
 
 
 /**
+ * @summary Read the generated image attached to a conversation message
+ */
+export const GetConversationGeneratedImageParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "messageId": zod.coerce.number().int()
+})
+
+export const GetConversationGeneratedImageResponse = zod.unknown()
+
+
+/**
  * Returns server health status
  * @summary Health check
  */
@@ -172,10 +183,17 @@ export const sendAssistantMessageBodyPhotoDataUrlMax = 2800000;
 
 
 
+export const sendAssistantMessageBodyToolCallPromptRegExp = new RegExp('\\S');
+
+
 export const SendAssistantMessageBody = zod.object({
   "content": zod.string().describe('Question or message text; may be empty when a photo is attached.'),
   "photoDataUrl": zod.string().max(sendAssistantMessageBodyPhotoDataUrlMax).optional().describe('One resized JPEG, PNG, or WebP photo as a base64 data URL. Never persisted.'),
-  "providerId": zod.string().nullish()
+  "providerId": zod.string().nullish(),
+  "toolCall": zod.object({
+  "name": zod.enum(['generate_image']),
+  "prompt": zod.string().min(1).regex(sendAssistantMessageBodyToolCallPromptRegExp).describe('Explicit generate_image capability invocation; not rewritten')
+}).optional()
 })
 
 export const SendAssistantMessageResponse = zod.object({

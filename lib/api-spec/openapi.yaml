@@ -55,6 +55,27 @@ paths:
           description: OPENAI_API_KEY is not configured
         "504":
           description: OpenAI image generation timed out
+  /assistant/conversations/{id}/messages/{messageId}/image:
+    get:
+      operationId: getConversationGeneratedImage
+      summary: Read the generated image attached to a conversation message
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: messageId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Persisted generated PNG image
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        "404":
+          description: Conversation message or generated image not found
   /healthz:
     get:
       operationId: healthCheck
@@ -464,7 +485,21 @@ components:
           maxLength: 2800000
         providerId:
           type: ["string", "null"]
+        toolCall:
+          $ref: "#/components/schemas/ImageCapabilityInput"
       required: [content]
+    ImageCapabilityInput:
+      type: object
+      required: [name, prompt]
+      properties:
+        name:
+          type: string
+          enum: [generate_image]
+        prompt:
+          type: string
+          minLength: 1
+          pattern: '\S'
+          description: Explicit generate_image capability invocation; not rewritten
     AssistantMessagePair:
       type: object
       properties:

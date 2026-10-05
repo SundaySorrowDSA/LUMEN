@@ -1,0 +1,27 @@
+Continue and complete the previous LUMEN image-generation task that was interrupted when Replit credits ran out.
+
+Important: first inspect the current codebase and determine exactly what was already changed by the interrupted run. Do not duplicate implementations, create a second image client, or overwrite working code unnecessarily. Preserve any correct partial work.
+
+The finished result should do all of the following:
+
+1. Preserve the currently working OpenAI image-generation implementation and reuse it as shared code.
+2. Keep the existing TEST IMAGE functionality, but move it into a collapsible developer/diagnostic section such as Dev Tools > Image Sandbox.
+3. The developer section should be collapsed by default.
+4. When expanded, the Image Sandbox must retain:
+    * prompt input
+    * Generate button
+    * temporary image preview
+    * current diagnostics/error information
+    * existing working model, API key, and image settings
+5. Images made in the Image Sandbox must remain temporary and must not be saved to the conversation.
+6. Add or finish a real LUMEN capability named generate_image that can be invoked through the Ren/LUMEN orchestration layer.
+7. generate_image should accept an image prompt, generate exactly one image, and display it inline in the active conversation.
+8. Conversation-generated images must persist with the conversation/message and remain visible after reopening the thread.
+9. Show a generating/thinking state while the image is being created.
+10. If OpenAI returns moderation_blocked with moderation stage output, automatically retry the identical prompt once. Do not rewrite, sanitize, or modify the prompt.
+11. If a transient network/load failure occurs, retry once.
+12. Never automatically retry more than once.
+13. If the retry also fails, surface the detailed diagnostic error instead of looping.
+14. Preserve trace logging through the full path:
+    Ren/requesting component → LUMEN → OpenAI image generation → result → conversation
+15. Do not change consult_openai, Kindroid integration, secrets, or unrelated working functionality.

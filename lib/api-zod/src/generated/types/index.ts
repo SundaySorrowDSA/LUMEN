@@ -21,6 +21,8 @@ export * from './assistantProvider';
 export * from './assistantProviderSelection';
 export * from './assistantProviderSelectionInput';
 export * from './healthStatus';
+export * from './imageCapabilityInput';
+export * from './imageCapabilityInputName';
 export * from './openAiImageError';
 export * from './testImageFailure';
 export * from './testImageInput';

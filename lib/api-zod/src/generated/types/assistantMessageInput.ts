@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ImageCapabilityInput } from './imageCapabilityInput';
 
 export interface AssistantMessageInput {
   /** Question or message text; may be empty when a photo is attached. */
@@ -16,4 +17,5 @@ export interface AssistantMessageInput {
   photoDataUrl?: string;
   /** @nullable */
   providerId?: string | null;
+  toolCall?: ImageCapabilityInput;
 }

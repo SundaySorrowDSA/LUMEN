@@ -108,6 +108,23 @@ export interface AssistantConversationWithMessages {
   messages: AssistantMessage[];
 }
 
+export type ImageCapabilityInputName = typeof ImageCapabilityInputName[keyof typeof ImageCapabilityInputName];
+
+
+export const ImageCapabilityInputName = {
+  generate_image: 'generate_image',
+} as const;
+
+export interface ImageCapabilityInput {
+  name: ImageCapabilityInputName;
+  /**
+     * Explicit generate_image capability invocation; not rewritten
+     * @minLength 1
+     * @pattern \S
+     */
+  prompt: string;
+}
+
 export interface AssistantMessageInput {
   /** Question or message text; may be empty when a photo is attached. */
   content: string;
@@ -118,6 +135,7 @@ export interface AssistantMessageInput {
   photoDataUrl?: string;
   /** @nullable */
   providerId?: string | null;
+  toolCall?: ImageCapabilityInput;
 }
 
 export interface AssistantMessagePair {
