@@ -5,6 +5,15 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface TestImageInput {
+  /**
+     * Image prompt; whitespace-only prompts are not accepted
+     * @minLength 1
+     * @pattern \S
+     */
+  prompt: string;
+}
+
 export interface AssistantActivity {
   id: number;
   label: string;

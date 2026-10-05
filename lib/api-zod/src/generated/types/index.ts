@@ -21,3 +21,4 @@ export * from './assistantProvider';
 export * from './assistantProviderSelection';
 export * from './assistantProviderSelectionInput';
 export * from './healthStatus';
+export * from './testImageInput';

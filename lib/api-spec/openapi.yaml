@@ -26,7 +26,13 @@ paths:
                 type: string
     post:
       operationId: generateTestImage
-      summary: Generate one crow image using the fixed test prompt
+      summary: Generate one test image from the submitted prompt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestImageInput"
       responses:
         "200":
           description: Generated PNG bytes, suitable for an image element or blob URL
@@ -35,6 +41,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        "400":
+          description: Prompt must be a non-empty string
         "429":
           description: Another image generation test is already running
         "502":
@@ -247,6 +255,15 @@ paths:
                   $ref: "#/components/schemas/AssistantConnection"
 components:
   schemas:
+    TestImageInput:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          pattern: '\S'
+          description: Image prompt; whitespace-only prompts are not accepted
     AssistantOverview:
       type: object
       properties:

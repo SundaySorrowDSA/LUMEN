@@ -15,8 +15,17 @@ export const GetTestImagePageResponse = zod.unknown()
 
 
 /**
- * @summary Generate one crow image using the fixed test prompt
+ * @summary Generate one test image from the submitted prompt
  */
+
+
+export const generateTestImageBodyPromptRegExp = new RegExp('\\S');
+
+
+export const GenerateTestImageBody = zod.object({
+  "prompt": zod.string().min(1).regex(generateTestImageBodyPromptRegExp).describe('Image prompt; whitespace-only prompts are not accepted')
+})
+
 export const GenerateTestImageResponse = zod.unknown()
 
 

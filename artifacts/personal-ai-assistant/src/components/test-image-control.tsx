@@ -4,6 +4,8 @@ import { Loader2 } from 'lucide-react';
 
 /** Temporary proof of concept: no conversation mutations, query cache, or persistence. */
 export function TestImageControl() {
+  const [prompt, setPrompt] = useState('A small black crow standing on a gold coin, cinematic lighting.');
+  const [imagePrompt, setImagePrompt] = useState('');
   const [pending, setPending] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,13 +25,18 @@ export function TestImageControl() {
 
   const runTest = async () => {
     if (requestRef.current) return;
+    const enteredPrompt = prompt.trim();
+    if (!enteredPrompt) {
+      setError('Please enter a non-empty image prompt.');
+      return;
+    }
     const controller = new AbortController();
     requestRef.current = controller;
     setPending(true);
     setError(null);
     releaseImage();
     try {
-      const image = await generateTestImage({
+      const image = await generateTestImage({ prompt: enteredPrompt }, {
         responseType: 'blob',
         headers: { Accept: 'image/png' },
         signal: controller.signal,
@@ -40,6 +47,7 @@ export function TestImageControl() {
       }
       const url = URL.createObjectURL(image);
       urlRef.current = url;
+      setImagePrompt(enteredPrompt);
       setImageUrl(url);
     } catch (failure) {
       if (!controller.signal.aborted) {
@@ -60,16 +68,7 @@ export function TestImageControl() {
       data-testid="test-image-control"
     >
       <div className="flex items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => void runTest()}
-          disabled={pending}
-          className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 font-mono text-xs font-semibold text-primary disabled:opacity-60"
-          data-testid="button-test-image"
-        >
-          {pending && <Loader2 size={15} className="animate-spin" aria-hidden="true" />}
-          TEST IMAGE
-        </button>
+        <span className="shrink-0 font-mono text-xs font-semibold text-primary">TEST IMAGE</span>
         <span className="text-[11px] text-muted-foreground">Temporary test · not saved to chat</span>
         {(imageUrl || error) && !pending && (
           <button
@@ -82,6 +81,28 @@ export function TestImageControl() {
           </button>
         )}
       </div>
+      <form className="mt-2 flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); void runTest(); }}>
+        <label htmlFor="test-image-prompt" className="sr-only">Image prompt</label>
+        <textarea
+          id="test-image-prompt"
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          disabled={pending}
+          rows={2}
+          placeholder="Describe the image to generate"
+          className="min-w-0 flex-1 resize-none rounded-lg border border-border bg-background px-2.5 py-2 text-base leading-5 text-foreground outline-none focus:border-primary disabled:opacity-60"
+          data-testid="input-test-image-prompt"
+        />
+        <button
+          type="submit"
+          disabled={pending}
+          className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 text-xs font-semibold text-primary disabled:opacity-60"
+          data-testid="button-test-image"
+        >
+          {pending && <Loader2 size={15} className="animate-spin" aria-hidden="true" />}
+          Generate
+        </button>
+      </form>
       {pending && (
         <p role="status" className="mt-2 text-xs text-muted-foreground" data-testid="test-image-loading">
           Generating one image… This may take up to two minutes.
@@ -96,7 +117,7 @@ export function TestImageControl() {
         <figure className="mt-2" data-testid="test-image-result">
           <img
             src={imageUrl}
-            alt="Generated test image: a small black crow standing on a gold coin, cinematic lighting."
+            alt={`Generated test image: ${imagePrompt}`}
             className="mx-auto max-h-[min(30dvh,260px)] max-w-full rounded-lg object-contain"
             onError={() => {
               releaseImage();

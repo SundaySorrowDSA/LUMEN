@@ -15,6 +15,7 @@ export class TestImageError extends Error {
 /** One transient Images API request, unrelated to the conversation provider router. */
 export async function generateTestImage(
   apiKey: string,
+  prompt: string,
   fetcher: typeof fetch = fetch,
 ): Promise<Buffer> {
   let response: Response;
@@ -28,7 +29,7 @@ export async function generateTestImage(
       },
       body: JSON.stringify({
         model: TEST_IMAGE_MODEL,
-        prompt: TEST_IMAGE_PROMPT,
+        prompt,
         n: 1,
         output_format: "png",
       }),
