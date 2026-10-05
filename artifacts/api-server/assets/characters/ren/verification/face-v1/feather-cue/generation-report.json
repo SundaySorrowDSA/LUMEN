@@ -1,0 +1,128 @@
+{
+  "canonicalReference": {
+    "character": "Ren",
+    "identityReferenceVersion": "v1",
+    "primaryFaceAsset": "ren-face-v1.png",
+    "assetPath": "artifacts/api-server/assets/characters/ren/ren-face-v1.png",
+    "role": "identity_primary",
+    "status": "approved",
+    "identityPriority": "high",
+    "outfitPriority": "low",
+    "note": "This image defines Ren's canonical face. Clothing in this image is NOT a required canonical outfit."
+  },
+  "canonicalSha256Before": "a05b8fc068292c556d13322190fbee84a544968a3d46bad97a32d69d786004c4",
+  "canonicalSha256After": "a05b8fc068292c556d13322190fbee84a544968a3d46bad97a32d69d786004c4",
+  "canonicalUnchanged": true,
+  "databaseUnchanged": true,
+  "results": [
+    {
+      "test": 1,
+      "name": "ren-subtle-feathers-black-tshirt",
+      "request": "Generate an image of Ren wearing a simple fitted black T-shirt in an ordinary relaxed indoor setting. Natural casual pose, minimal jewelry, and small, tasteful, clearly visible black feather adornments in her hair. Preserve her canonical face from the supplied primary face reference. Keep clothing completely ordinary. No feather crown, headdress, elaborate fantasy costume, excessive jewelry, or celestial regalia.",
+      "file": "artifacts/api-server/assets/characters/ren/verification/face-v1/feather-cue/ren-subtle-feathers-black-tshirt.png",
+      "objectPath": "/objects/generated/bb389f6e-a00e-4ecf-b73a-91ca32577ff6.png",
+      "imageBytes": 1843617,
+      "imageSha256": "2b9d2c280146d09cde641bc4f40033ebb2fecb9d7aa04a2d796ee7c65bba746a",
+      "provider": "OpenAI",
+      "model": "gpt-image-2.5-flare",
+      "identityInstruction": "The supplied reference image defines Ren's canonical face and visual identity. It is the PRIMARY IDENTITY REFERENCE with high identity priority and low outfit priority. Preserve the same recognizable adult woman, facial structure, complexion, golden eyes, black hair, and overall identity. Do not copy clothing, pose, background, expression, jewelry, accessories, or feather arrangement from the identity reference unless separately requested. Current wardrobe and scene instructions remain independent. Secondary visual cue: Include subtle, natural black feather adornments in Ren's hair by default unless the current scene or wardrobe explicitly calls for otherwise. Feathers are a secondary Ren marker, not part of her facial identity; the canonical face remains the highest-priority identity reference. Do not create oversized feather crowns, elaborate headdresses, or excessive fantasy ornamentation, or increase jewelry or outfit complexity. Clothing, pose, background, and activity remain variable.",
+      "characterIdentity": "Ren is an adult woman with a distinctly feminine appearance, a petite/slender feminine build, a heart-shaped feminine face, a soft feminine jawline, a delicate nose, full feminine lips, large luminous golden eyes, long flowing black hair, porcelain-pale skin, elegant black feather accents, ornate gold jewelry, a dark elegant gothic aesthetic, and feminine styling and silhouette. Her facial features, styling, and silhouette must read as distinctly feminine, not masculine or androgynous. Preserve her adult female identity across all poses, framing, wardrobe choices, and rendering styles, including selfies and anime. Do not render Ren as male, masculine-presenting, bearded, broad-jawed, or as a masculine anime character.",
+      "assembledPrompt": "Generate one image depicting Ren. Keep the canonical character identity consistent. The supplied reference image defines Ren's canonical face and visual identity. It is the PRIMARY IDENTITY REFERENCE with high identity priority and low outfit priority. Preserve the same recognizable adult woman, facial structure, complexion, golden eyes, black hair, and overall identity. Do not copy clothing, pose, background, expression, jewelry, accessories, or feather arrangement from the identity reference unless separately requested. Current wardrobe and scene instructions remain independent. Secondary visual cue: Include subtle, natural black feather adornments in Ren's hair by default unless the current scene or wardrobe explicitly calls for otherwise. Feathers are a secondary Ren marker, not part of her facial identity; the canonical face remains the highest-priority identity reference. Do not create oversized feather crowns, elaborate headdresses, or excessive fantasy ornamentation, or increase jewelry or outfit complexity. Clothing, pose, background, and activity remain variable. Honor explicit scene, pose, framing, style, and wardrobe changes in the user-specific request; the wardrobe section is the baseline when no change is requested.\n\nCharacter identity:\nRen is an adult woman with a distinctly feminine appearance, a petite/slender feminine build, a heart-shaped feminine face, a soft feminine jawline, a delicate nose, full feminine lips, large luminous golden eyes, long flowing black hair, porcelain-pale skin, elegant black feather accents, ornate gold jewelry, a dark elegant gothic aesthetic, and feminine styling and silhouette. Her facial features, styling, and silhouette must read as distinctly feminine, not masculine or androgynous. Preserve her adult female identity across all poses, framing, wardrobe choices, and rendering styles, including selfies and anime. Do not render Ren as male, masculine-presenting, bearded, broad-jawed, or as a masculine anime character.\n\nCurrent outfit / wardrobe:\nAn elegant black high-neck outfit with black feather detailing and ornate gold jewelry.\n\nScene / environment:\nin an ordinary relaxed indoor setting\n\nPose / framing:\nUse the requested camera angle and framing; otherwise a natural portrait view. Use the requested pose; otherwise relaxed, natural posture.\n\nStyle / mood:\nDark, elegant atmosphere with subtle golden highlights.\n\nUser-specific request details:\nRen wearing a simple fitted black T-shirt in an ordinary relaxed indoor setting. Natural casual pose, minimal jewelry, and small, tasteful, clearly visible black feather adornments in her hair. Preserve her canonical face from the supplied primary face reference. Keep clothing completely ordinary. No feather crown, headdress, elaborate fantasy costume, excessive jewelry, or celestial regalia.",
+      "sections": {
+        "characterIdentity": "Ren is an adult woman with a distinctly feminine appearance, a petite/slender feminine build, a heart-shaped feminine face, a soft feminine jawline, a delicate nose, full feminine lips, large luminous golden eyes, long flowing black hair, porcelain-pale skin, elegant black feather accents, ornate gold jewelry, a dark elegant gothic aesthetic, and feminine styling and silhouette. Her facial features, styling, and silhouette must read as distinctly feminine, not masculine or androgynous. Preserve her adult female identity across all poses, framing, wardrobe choices, and rendering styles, including selfies and anime. Do not render Ren as male, masculine-presenting, bearded, broad-jawed, or as a masculine anime character.",
+        "wardrobe": "An elegant black high-neck outfit with black feather detailing and ornate gold jewelry.",
+        "scene": "in an ordinary relaxed indoor setting",
+        "poseAndFraming": "Use the requested camera angle and framing; otherwise a natural portrait view. Use the requested pose; otherwise relaxed, natural posture.",
+        "styleAndMood": "Dark, elegant atmosphere with subtle golden highlights.",
+        "userRequestDetails": "Ren wearing a simple fitted black T-shirt in an ordinary relaxed indoor setting. Natural casual pose, minimal jewelry, and small, tasteful, clearly visible black feather adornments in her hair. Preserve her canonical face from the supplied primary face reference. Keep clothing completely ordinary. No feather crown, headdress, elaborate fantasy costume, excessive jewelry, or celestial regalia."
+      },
+      "wardrobeSource": "canonical_fallback",
+      "requests": [
+        {
+          "endpoint": "https://api.openai.com/v1/images/edits",
+          "provider": "OpenAI",
+          "model": "gpt-image-2.5-flare",
+          "inputField": "images[0].image_url",
+          "referenceBytes": 2937727,
+          "referenceSha256": "a05b8fc068292c556d13322190fbee84a544968a3d46bad97a32d69d786004c4",
+          "matchesCanonical": true,
+          "prompt": "Generate one image depicting Ren. Keep the canonical character identity consistent. The supplied reference image defines Ren's canonical face and visual identity. It is the PRIMARY IDENTITY REFERENCE with high identity priority and low outfit priority. Preserve the same recognizable adult woman, facial structure, complexion, golden eyes, black hair, and overall identity. Do not copy clothing, pose, background, expression, jewelry, accessories, or feather arrangement from the identity reference unless separately requested. Current wardrobe and scene instructions remain independent. Secondary visual cue: Include subtle, natural black feather adornments in Ren's hair by default unless the current scene or wardrobe explicitly calls for otherwise. Feathers are a secondary Ren marker, not part of her facial identity; the canonical face remains the highest-priority identity reference. Do not create oversized feather crowns, elaborate headdresses, or excessive fantasy ornamentation, or increase jewelry or outfit complexity. Clothing, pose, background, and activity remain variable. Honor explicit scene, pose, framing, style, and wardrobe changes in the user-specific request; the wardrobe section is the baseline when no change is requested.\n\nCharacter identity:\nRen is an adult woman with a distinctly feminine appearance, a petite/slender feminine build, a heart-shaped feminine face, a soft feminine jawline, a delicate nose, full feminine lips, large luminous golden eyes, long flowing black hair, porcelain-pale skin, elegant black feather accents, ornate gold jewelry, a dark elegant gothic aesthetic, and feminine styling and silhouette. Her facial features, styling, and silhouette must read as distinctly feminine, not masculine or androgynous. Preserve her adult female identity across all poses, framing, wardrobe choices, and rendering styles, including selfies and anime. Do not render Ren as male, masculine-presenting, bearded, broad-jawed, or as a masculine anime character.\n\nCurrent outfit / wardrobe:\nAn elegant black high-neck outfit with black feather detailing and ornate gold jewelry.\n\nScene / environment:\nin an ordinary relaxed indoor setting\n\nPose / framing:\nUse the requested camera angle and framing; otherwise a natural portrait view. Use the requested pose; otherwise relaxed, natural posture.\n\nStyle / mood:\nDark, elegant atmosphere with subtle golden highlights.\n\nUser-specific request details:\nRen wearing a simple fitted black T-shirt in an ordinary relaxed indoor setting. Natural casual pose, minimal jewelry, and small, tasteful, clearly visible black feather adornments in her hair. Preserve her canonical face from the supplied primary face reference. Keep clothing completely ordinary. No feather crown, headdress, elaborate fantasy costume, excessive jewelry, or celestial regalia.",
+          "httpStatus": 200
+        }
+      ],
+      "traceEvents": [
+        {
+          "level": 30,
+          "pid": 2169,
+          "hostname": "repl",
+          "stage": "ren_image_prompt_built",
+          "tool": "generate_image",
+          "character": "Ren",
+          "wardrobeSource": "canonical_fallback",
+          "sectionNames": [
+            "characterIdentity",
+            "wardrobe",
+            "scene",
+            "poseAndFraming",
+            "styleAndMood",
+            "userRequestDetails"
+          ],
+          "sections": {
+            "characterIdentity": "Ren is an adult woman with a distinctly feminine appearance, a petite/slender feminine build, a heart-shaped feminine face, a soft feminine jawline, a delicate nose, full feminine lips, large luminous golden eyes, long flowing black hair, porcelain-pale skin, elegant black feather accents, ornate gold jewelry, a dark elegant gothic aesthetic, and feminine styling and silhouette. Her facial features, styling, and silhouette must read as distinctly feminine, not masculine or androgynous. Preserve her adult female identity across all poses, framing, wardrobe choices, and rendering styles, including selfies and anime. Do not render Ren as male, masculine-presenting, bearded, broad-jawed, or as a masculine anime character.",
+            "wardrobe": "An elegant black high-neck outfit with black feather detailing and ornate gold jewelry.",
+            "scene": "in an ordinary relaxed indoor setting",
+            "poseAndFraming": "Use the requested camera angle and framing; otherwise a natural portrait view. Use the requested pose; otherwise relaxed, natural posture.",
+            "styleAndMood": "Dark, elegant atmosphere with subtle golden highlights.",
+            "userRequestDetails": "Ren wearing a simple fitted black T-shirt in an ordinary relaxed indoor setting. Natural casual pose, minimal jewelry, and small, tasteful, clearly visible black feather adornments in her hair. Preserve her canonical face from the supplied primary face reference. Keep clothing completely ordinary. No feather crown, headdress, elaborate fantasy costume, excessive jewelry, or celestial regalia."
+          },
+          "originalPromptLength": 395,
+          "finalPromptLength": 2830,
+          "identityReferenceVersion": "v1",
+          "identityReferenceRole": "identity_primary",
+          "referenceImageBytes": 2937727,
+          "msg": "Ren canonical prompt builder used"
+        },
+        {
+          "level": 30,
+          "pid": 2169,
+          "hostname": "repl",
+          "stage": "image_capability_requested",
+          "tool": "generate_image",
+          "promptLength": 2830,
+          "msg": "LUMEN image capability requested"
+        },
+        {
+          "level": 30,
+          "pid": 2169,
+          "hostname": "repl",
+          "stage": "image_generation_attempt",
+          "tool": "generate_image",
+          "model": "gpt-image-2.5-flare",
+          "attempt": 1,
+          "promptLength": 2830,
+          "msg": "LUMEN image generation trace"
+        },
+        {
+          "level": 30,
+          "pid": 2169,
+          "hostname": "repl",
+          "stage": "image_generation_result",
+          "tool": "generate_image",
+          "attempt": 1,
+          "imageBytes": 1843617,
+          "msg": "LUMEN image generation trace"
+        },
+        {
+          "level": 30,
+          "pid": 2169,
+          "hostname": "repl",
+          "stage": "image_stored",
+          "tool": "generate_image",
+          "imageBytes": 1843617,
+          "msg": "Generated image saved to App Storage"
+        }
+      ],
+      "success": true
+    }
+  ]
+}

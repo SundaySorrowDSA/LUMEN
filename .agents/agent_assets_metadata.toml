@@ -70,3 +70,17 @@ mtime_ms = 1791235531042
 storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/2380ea32-615a-4021-82ce-8f8065a5d3df/eb8b4981-0e4d-4d74-838c-dcbb7ef39229"
 storage_version_token = "1791235531413670"
 content_type = "text/plain"
+
+[[outputs]]
+id = "hXEOkAbZ25bs6eLzigEoh"
+uri = "file://artifacts/api-server/assets/characters/ren/verification/face-v1/feather-cue/ren-subtle-feathers-black-tshirt.png"
+type = "image"
+title = "Ren — subtle black feather verification"
+description = "One live production-pipeline image: ordinary black T-shirt, relaxed indoor setting, minimal jewelry, and visible black feather hair accents. The canonical reference bytes were supplied to OpenAI."
+logical_id = "55a864d8-f76f-4849-84cd-bab38330dffe"
+content_hash = "sha256:2b9d2c280146d09cde641bc4f40033ebb2fecb9d7aa04a2d796ee7c65bba746a"
+size = 1843617
+mtime_ms = 1791236844016
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/55a864d8-f76f-4849-84cd-bab38330dffe/3182e378-0937-4fc4-9a18-b27626afa471"
+storage_version_token = "1791236909202299"
+content_type = "image/png"
