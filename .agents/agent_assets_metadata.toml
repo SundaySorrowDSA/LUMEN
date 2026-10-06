@@ -84,3 +84,17 @@ mtime_ms = 1791236844016
 storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/55a864d8-f76f-4849-84cd-bab38330dffe/3182e378-0937-4fc4-9a18-b27626afa471"
 storage_version_token = "1791236909202299"
 content_type = "image/png"
+
+[[outputs]]
+id = "-F0nud7PqvpdVe3iMglgK"
+uri = "file://artifacts/api-server/assets/characters/ren/ren-lookbook-v1.png"
+type = "image"
+title = "Ren lookbook v1 — approved secondary style reference"
+description = "Unmodified reference sheet for wardrobe and presentation. No facial identity authority; not automatically sent to production generations."
+logical_id = "507809e4-e87f-4ab1-b283-8a2ec38e1887"
+content_hash = "sha256:338dbcae4d0be58ef7874e1e2606132ee151517b7e4be514f40e084618a99e66"
+size = 2451940
+mtime_ms = 1791247080642
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/507809e4-e87f-4ab1-b283-8a2ec38e1887/d0de3e87-819c-44a7-a92f-d88be4795adc"
+storage_version_token = "1791247143256882"
+content_type = "image/png"

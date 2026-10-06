@@ -1,0 +1,59 @@
+Add the attached Ren reference sheet to LUMEN as an approved secondary visual reference.
+
+This image is NOT Ren’s primary identity reference.
+ren-face-v1.png remains the single authoritative canonical face reference and must retain highest priority.
+
+Save the attached image as:
+
+artifacts/api-server/assets/characters/ren/ren-lookbook-v1.png
+
+Register it alongside the existing Ren visual-reference configuration with:
+
+* character: Ren
+* reference version: v1
+* role: visual_style_reference
+* status: approved
+* identity priority: secondary
+* wardrobe priority: high
+* accessory priority: high
+* face authority: none
+
+Purpose:
+
+This reference sheet defines Ren's broader visual language: wardrobe families, black-and-gold styling, subtle feather placement, simple jewelry, boots, bag, casual clothing, and overall presentation. It does NOT override ren-face-v1.png and must never be used to redefine Ren's facial identity.
+
+Important interpretation rules:
+
+* ren-face-v1.png defines WHO REN IS.
+* ren-lookbook-v1.png defines HOW REN GENERALLY DRESSES AND PRESENTS HERSELF.
+* Do not combine every outfit shown in the sheet into one generation.
+* Treat each depicted outfit as a separate possible wardrobe direction.
+* Do not automatically copy text, labels, collage layout, borders, or typography from the lookbook into generated images.
+* Do not increase fantasy ornamentation simply because several examples appear on one sheet.
+* Preserve the existing preference for normal, wearable clothing and restrained accessories.
+* Subtle black feathers remain a recurring Ren signature.
+* Clothing must remain independently selectable by the wardrobe system.
+
+Do NOT yet pass the entire lookbook image automatically to every production generation.
+
+For this step, only:
+
+1. permanently store the image,
+2. register its metadata,
+3. make it available to future wardrobe/reference logic.
+
+Do not change current image-generation behavior.
+Do not modify ren-face-v1.png.
+Do not modify provider routing.
+Do not modify Kindroid behavior.
+Do not modify chat behavior.
+Do not perform live generations.
+
+Verify the attached file was copied without modification and report:
+
+* final asset path
+* exact config changes
+* SHA-256 of the stored image
+* confirmation that ren-face-v1.png remains unchanged
+* confirmation that the lookbook is secondary and cannot override the canonical face
+* confirmation that no runtime generation behavior changed

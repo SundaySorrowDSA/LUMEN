@@ -11,6 +11,12 @@ Include subtle, natural black feather adornments in Ren's hair by default unless
 
 **How to apply:** Treat hair feathers as an overridable visual default, never as a reason to change the approved face or require a particular outfit.
 
+The user's approved lookbook defines how Ren generally dresses and presents herself, not who she is. Its depicted outfits are separate alternatives, not a combined or mandatory costume. It has no authority over her face.
+
+**Why:** The user approved the sheet as a secondary style reference while explicitly preserving the primary face and independently selectable clothing.
+
+**How to apply:** Keep the lookbook's black-and-gold presentation, subtle feathers, practical clothing, and restrained accessories separate from facial identity. Do not reproduce its labels or collage layout or increase fantasy ornamentation. Registration alone is not permission to send it automatically to generation.
+
 Ren's supporting canonical text description is: adult woman; distinctly feminine appearance; petite/slender feminine build; heart-shaped feminine face; soft feminine jawline; delicate nose; full feminine lips; large luminous golden eyes; long flowing black hair; porcelain-pale skin; elegant black feather accents; ornate gold jewelry; dark elegant gothic aesthetic; feminine styling and silhouette.
 
 Ren must not be rendered as male, masculine-presenting, bearded, broad-jawed, or as a masculine anime character.
