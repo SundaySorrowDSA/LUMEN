@@ -1,0 +1,58 @@
+Fix the mobile chat initial-scroll bug and add a “Jump to latest” control.
+
+Current bug:
+When an existing conversation is opened or the page is reloaded, the chat viewport lands partway up the conversation—currently around a previously generated image—instead of at the newest message at the bottom.
+
+Required initial-scroll behavior:
+
+* When an existing thread is first opened, automatically scroll to the true bottom of the message history.
+* Perform the final initial scroll only after persisted messages AND generated images/media have restored/rendered sufficiently that late image layout shifts will not move the viewport upward afterward.
+* The newest message and composer should be visible when initialization completes.
+* Account for cached images as well as images that load asynchronously.
+* Account for iPhone/mobile Safari visual viewport behavior.
+* Do not continuously force-scroll after initialization.
+* Once the user manually scrolls upward, preserve their position. Do not yank them back to the bottom.
+* New messages should retain the existing sensible auto-scroll behavior when the user is already at/near the bottom.
+* Do not modify message persistence, image persistence, thread contents, generated-image behavior, or unrelated UI.
+
+Add a “Jump to latest” control:
+
+* When the user scrolls far enough upward that they are no longer at/near the bottom of the conversation, display a small floating circular ↓ button.
+* Position it centered horizontally immediately above the composer, similar to the common chat-app “jump to latest” control.
+* Tapping it should smoothly scroll the conversation to the true bottom/latest message.
+* Hide the button while the user is already at/near the bottom.
+* Show it automatically when the user scrolls upward beyond the near-bottom threshold.
+* Hide it again when the user returns to the bottom, whether manually or by tapping the button.
+* The button itself must never change scroll position unless tapped.
+* Keep its position correct when the iPhone keyboard opens/closes or the mobile Safari visual viewport changes.
+* It must remain above the composer without obscuring messages or controls.
+* Match LUMEN’s existing dark/gold visual language.
+* Make the touch target appropriately sized for mobile use.
+
+Implementation requirements:
+
+* Use the actual scroll container rather than relying on page-level scrolling.
+* Avoid arbitrary long fixed delays as the primary solution.
+* Prefer render/layout/image readiness signals and appropriate DOM/browser APIs so the behavior remains reliable as conversation length and media content change.
+* Prevent programmatic initialization scrolling from being mistaken for manual user scrolling.
+* Preserve existing desktop behavior.
+
+Testing:
+
+* Add or update tests for opening/restoring a thread containing generated images.
+* Verify initial load ends at the true bottom after media restoration.
+* Verify scrolling upward does not trigger forced auto-scroll.
+* Verify the ↓ control appears away from the bottom and disappears at the bottom.
+* Verify tapping ↓ returns to the latest message.
+* Verify new-message auto-scroll still behaves correctly.
+* Check mobile/iPhone viewport behavior for keyboard and layout changes.
+
+Do not make unrelated changes.
+
+After implementation, report:
+
+1. the root cause of the original scroll-position bug;
+2. every file changed;
+3. how the initial-scroll fix works;
+4. how the near-bottom/↓ button logic works;
+5. tests added or changed and their results.

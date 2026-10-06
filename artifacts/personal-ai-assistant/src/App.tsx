@@ -17,7 +17,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
 import {
-  Activity, Archive, ArrowUp, Bell, Brain, Camera, Check, ChevronRight, CircleHelp, Cloud,
+  Activity, Archive, ArrowDown, ArrowUp, Bell, Brain, Camera, Check, ChevronRight, CircleHelp, Cloud,
   Ellipsis, FileText, FolderOpen, Globe2, Link2, Loader2,
   MessageSquare, Plus, Settings2, ShieldCheck, Sparkles,
   Trash2, Waypoints, Wifi, X, Zap,
@@ -62,6 +62,7 @@ import { TestImageControl } from '@/components/test-image-control';
 import { ConversationGeneratedImage } from '@/components/conversation-generated-image';
 import { ACTIVE_CONVERSATION_KEY, readActiveConversation, resolveConversationSelection } from '@/lib/conversation-selection';
 import { readTestImageError } from '@/lib/test-image-errors';
+import { useChatScroll } from '@/hooks/use-chat-scroll';
 import {
   readPhotoDiagnostics, updatePhotoDiagnostic,
   type PhotoDiagnostic, type PhotoSource,
@@ -481,10 +482,9 @@ function Workspace() {
   const [showNew, setShowNew] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'list' | 'context' | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
-  const scrollAfterPhotosRef = useRef(false);
+  const messageContentRef = useRef<HTMLDivElement>(null);
   const pendingPhotoWritesRef = useRef<Set<Promise<void>>>(new Set());
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const keepLatestVisibleRef = useRef(false);
   const assistantTraceIdRef = useRef<string | null>(null);
   const assistantTraceHeadersRef = useRef<Record<string, string>>({});
   const selected = resolveConversationSelection(selectedId, conversations, overview?.activeConversationId);
@@ -511,6 +511,10 @@ function Workspace() {
   const displayedMessages = buildDisplayMessages(
     canonicalMessages,
     optimisticMessages.filter((message) => message.conversationId === selected),
+  );
+  const { awayFromLatest, jumpToLatest } = useChatScroll(
+    messagesRef, messageContentRef, selected,
+    active?.id === selected && photoLookup?.conversationId === selected && photoLookup.status !== 'loading',
   );
   const latestAssistantMessage = [...canonicalMessages].reverse().find((message) => message.role === 'assistant');
   const latestUserMessage = [...canonicalMessages].reverse().find((message) => message.role === 'user');
@@ -551,9 +555,6 @@ function Workspace() {
         conversationId: selected, status: 'ready', checkedAt: Date.now(),
         foundIds: new Set(photos.map((item) => item.messageId)),
       });
-      const messages = messagesRef.current;
-      scrollAfterPhotosRef.current = !!messages &&
-        messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
       const byMessageId: Record<number, string> = {};
       for (const item of photos) {
         const url = URL.createObjectURL(item.blob);
@@ -576,37 +577,10 @@ function Workspace() {
     };
   }, [selected, importedPhotoLookupKey]);
 
-  useLayoutEffect(() => {
-    if (scrollAfterPhotosRef.current && messagesRef.current) {
-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
-    }
-    scrollAfterPhotosRef.current = false;
-  }, [localPhotos]);
-
   useEffect(() => {
     if (!selectedId && overview?.activeConversationId) setSelectedId(overview.activeConversationId);
   }, [overview?.activeConversationId, selectedId]);
 
-  useEffect(() => {
-    const messages = messagesRef.current;
-    if (messages) messages.scrollTop = messages.scrollHeight;
-  }, [displayedMessages.length, isThinking]);
-
-  useEffect(() => {
-    const messages = messagesRef.current;
-    if (!messages) return;
-    let previousHeight = messages.clientHeight;
-    const observer = new ResizeObserver(() => {
-      const height = messages.clientHeight;
-      if (height < previousHeight && keepLatestVisibleRef.current &&
-          document.activeElement === composerRef.current && window.innerWidth < 640) {
-        messages.scrollTop = messages.scrollHeight;
-      }
-      previousHeight = height;
-    });
-    observer.observe(messages);
-    return () => observer.disconnect();
-  }, []);
 
   useLayoutEffect(() => {
     const textarea = composerRef.current;
@@ -845,12 +819,12 @@ function Workspace() {
       onSettled: () => setIsSubmittingMessage(false),
     });
   };
-  return <div className="workspace-viewport h-[calc(var(--app-viewport-height)-var(--mobile-nav-height))] min-h-0 overflow-hidden md:h-auto md:min-h-screen">
+  return <div className="workspace-viewport h-[calc(var(--app-viewport-height)-var(--mobile-nav-height))] min-h-0 overflow-hidden">
     <div className="flex h-16 items-center justify-between border-b border-border px-5 sm:px-8 lg:px-12">
       <div className="flex items-center gap-3"><div className="h-2 w-2 rounded-full bg-[hsl(var(--chart-3))] shadow-[0_0_0_4px_hsl(var(--chart-3)/.12)]" /><span className="font-mono text-[10px] uppercase tracking-[.18em] text-muted-foreground">Ready when you are</span></div>
        <div className="flex items-center gap-3"><span className="hidden text-xs text-muted-foreground sm:inline">{overview?.model ?? 'Assistant'} <span className="mx-1 text-border">/</span> {overview?.modelStatus ?? 'standby'}</span><button aria-label="Open help" title="Help" className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" data-testid="button-help"><CircleHelp size={17} /></button></div>
     </div>
-      <div className="grid h-[calc(var(--app-viewport-height)-var(--mobile-nav-height)-4rem)] min-h-0 lg:grid-cols-[250px_minmax(0,1fr)_278px] lg:min-h-[calc(100dvh-64px)] lg:h-auto">
+      <div className="grid h-[calc(var(--app-viewport-height)-var(--mobile-nav-height)-4rem)] min-h-0 lg:grid-cols-[250px_minmax(0,1fr)_278px]">
       <section className={`${mobilePanel === 'list' ? 'fixed inset-0 z-40 flex' : 'hidden'} flex-col border-r border-border bg-card lg:static lg:flex`}>
          <div className="flex items-center justify-between border-b border-border px-5 py-5"><div><p className="font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">Conversations</p><p className="mt-1 text-xs text-muted-foreground">{overview?.conversationCount ?? conversations.length} threads</p></div><button className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-transform hover:-translate-y-0.5" onClick={() => setShowNew(true)} aria-label="New conversation" title="New conversation" data-testid="button-new-conversation"><Plus size={16} /><span>New</span></button></div>
         {showNew && <div className="border-b border-border bg-muted/50 p-4"><input autoFocus value={newTitle} onChange={(event) => setNewTitle(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && submitNew()} placeholder="Name this thread" className="mb-2 w-full border-b border-primary/50 bg-transparent px-1 py-2 text-sm outline-none placeholder:text-muted-foreground/60" data-testid="input-conversation-title" /><div className="flex justify-end gap-2"><button onClick={() => setShowNew(false)} className="px-2 py-1 text-xs text-muted-foreground" data-testid="button-cancel-conversation">Cancel</button><button onClick={submitNew} disabled={createConversation.isPending} className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50" data-testid="button-create-conversation">{createConversation.isPending ? 'Opening…' : 'Open thread'}</button></div></div>}
@@ -859,10 +833,11 @@ function Workspace() {
         </div>
          <button onClick={() => setMobilePanel(null)} className="m-3 flex items-center justify-center gap-2 rounded-lg border border-border py-2 text-xs text-muted-foreground lg:hidden" aria-label="Close conversations panel" data-testid="button-close-conversation-panel"><X size={14} /> Close</button>
       </section>
-        <main className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background lg:min-h-[calc(100dvh-64px)]">
+        <main className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-8"><div className="min-w-0 flex-1"><div role="status" aria-live="polite" aria-atomic="true" title={active?.title ?? 'Ren status'} className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/[.06] px-2.5 py-1.5 text-xs text-foreground shadow-sm" data-testid="ren-mood-status" data-last-interaction-at={lastInteractionAt ?? ''} data-elapsed-ms={elapsedSinceLastInteractionMs ?? ''}><span aria-hidden="true" className="text-primary">{displayedRenMood.symbol}</span><span className="font-medium text-primary">Ren</span><span className="text-muted-foreground/50">·</span><span className="truncate text-muted-foreground">{displayedRenMood.label}</span></div><p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[.16em] text-muted-foreground">{active ? `${displayedMessages.length} messages · private thread` : 'No thread selected'}</p></div><div className="flex shrink-0 gap-2 lg:hidden"><button onClick={() => setMobilePanel('list')} aria-label="Open conversations" title="Open conversations" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground" data-testid="button-open-conversation-panel"><Archive size={15} /><span>Chats</span></button><button onClick={() => setMobilePanel('context')} aria-label="Open context and capabilities" title="Open context and capabilities" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground" data-testid="button-open-context-panel"><Activity size={15} /><span className="min-[360px]:hidden">Info</span><span className="hidden min-[360px]:inline">Context</span></button></div>{active && <button onClick={() => { if (confirm('Delete this conversation?')) deleteConversation.mutate({ id: active.id }, { onSuccess: () => { void Promise.allSettled([...pendingPhotoWritesRef.current]).then(() => deleteLocalPhotos(active.id)).catch(() => setPhotoError('Conversation deleted, but its locally saved photos could not be removed from this browser.')); setSelectedId(null); qc.invalidateQueries({ queryKey: getListAssistantConversationsQueryKey() }); qc.invalidateQueries({ queryKey: getGetAssistantOverviewQueryKey() }); } }); }} disabled={isThinking} aria-label="Delete conversation" title="Delete conversation" className="hidden rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40 sm:block" data-testid="button-delete-conversation"><Trash2 size={15} /></button>}</div>
           <TestImageControl />
-          <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 sm:px-8 lg:px-14">
+          <div ref={messagesRef} data-testid="chat-scroll-container" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 sm:px-8 lg:px-14">
+            <div ref={messageContentRef}>
              {!selected ? <div className="flex h-full min-h-[420px] flex-col items-center justify-center text-center"><div className="mb-5 flex h-16 w-16 items-center justify-center rounded-lg border border-accent/40 bg-accent/10 text-primary"><Sparkles size={25} strokeWidth={1.4} /></div><h2 className="font-serif text-3xl">A clear place to begin.</h2><p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">Choose a thread or open a new one. Lumen is here to think alongside you.</p><button onClick={() => setShowNew(true)} className="mt-6 flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm text-primary-foreground transition-transform hover:-translate-y-0.5" data-testid="button-empty-new-conversation"><Plus size={15} /> Start a thread</button></div> : detailQuery.isLoading ? <div className="mx-auto max-w-2xl pt-8"><LoadingLines count={7} /></div> : detailQuery.isError ? <div className="mx-auto mt-10 max-w-sm rounded-lg border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="text-sm font-medium text-destructive">This thread could not be opened.</p><button onClick={() => detailQuery.refetch()} className="mt-3 text-xs underline" data-testid="button-retry-conversation">Try again</button></div> : displayedMessages.length === 0 ? <div className="mx-auto flex min-h-[400px] max-w-xl flex-col items-center justify-center text-center"><div className="mb-5 font-mono text-[10px] uppercase tracking-[.2em] text-accent">New thread</div><h2 className="font-serif text-4xl">What should we hold today?</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">Ask for a considered answer, a web search, or a small action. You stay in control.</p><div className="mt-8 grid grid-cols-1 gap-2 text-left sm:grid-cols-3"><button onClick={() => setComposer('Help me make sense of something I am working through')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-clarify">Make sense of something</button><button onClick={() => setComposer('Research this topic and bring me the useful details')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-research">Research a topic</button><button onClick={() => setComposer('Help me plan the next steps for a project')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-plan">Plan next steps</button></div></div> : <div className="mx-auto max-w-2xl space-y-8">{displayedMessages.map((message) => {
                const isOptimistic = 'optimistic' in message;
                const photoUrl = !isOptimistic ? photoUrlForMessage(message, localPhotos) : undefined;
@@ -891,7 +866,15 @@ function Workspace() {
                  </div>
                </div>;
              })}{isThinking && <div className="flex gap-4"><div className="flex items-center gap-2 pt-1 text-muted-foreground"><span className="flex gap-1"><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:120ms]" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:240ms]" /></span><span className="font-mono text-[10px] uppercase tracking-widest">Thinking</span></div></div>}</div>}
+            </div>
         </div>
+          {awayFromLatest && <div className="relative h-14 shrink-0" data-testid="jump-to-latest-region">
+            <button type="button" onPointerDown={(event) => event.preventDefault()} onClick={jumpToLatest}
+              aria-label="Jump to latest" title="Jump to latest" data-testid="button-jump-to-latest"
+              className="absolute bottom-2 left-1/2 flex h-11 w-11 -translate-x-1/2 items-center justify-center rounded-full border border-primary/40 bg-card text-primary shadow-lg shadow-black/50 transition-colors hover:bg-primary/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+              <ArrowDown size={21} aria-hidden="true" />
+            </button>
+          </div>}
           <div className="message-composer-bar shrink-0 border-t border-border bg-background/90 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur sm:px-8 lg:px-14">
            <div className="mx-auto max-w-2xl">
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" aria-label="Choose a photo" onChange={selectPhoto} data-testid="input-photo" />
@@ -909,12 +892,6 @@ function Workspace() {
                     if (!event.clipboardData.getData('text/plain')) event.preventDefault();
                     void preparePhoto(image.file, 'paste', image.representation);
                   }}
-                  onFocus={() => {
-                    const messages = messagesRef.current;
-                    keepLatestVisibleRef.current = !!messages &&
-                      messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
-                  }}
-                  onBlur={() => { keepLatestVisibleRef.current = false; }}
                  onKeyDown={(event) => {
                    if (event.key === 'Enter' && !event.shiftKey) {
                      event.preventDefault();
