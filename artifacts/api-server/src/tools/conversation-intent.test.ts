@@ -20,6 +20,26 @@ export const promise = [
   { role: "assistant", content: "Let me find something suitable for public view. I'll send a picture so you can coordinate." },
 ];
 
+for (const content of [
+  "I’d like you to send me a selfie",
+  "I'd like you to send me a selfie.",
+  "I would like you to send me a selfie.",
+  "Could you send me a photo?",
+  "Would you show me a picture?",
+  "Show me a picture of yourself",
+]) {
+  test(`image path regression: ${content}`, () => {
+    for (const messages of [[], promise]) {
+      const intent = resolveConversationIntent(content, { assistantCharacter: "Ren", messages });
+      assert.ok(intent.imageRequest, content);
+      assert.equal(intent.webSearchRequested, false);
+      assert.equal(intent.imageRequest.resolvedAssistantSubject, true);
+      assert.match(intent.imageRequest.prompt, /\bRen\b/);
+      if (/selfie/.test(content)) assert.equal(intent.imageRequest.prompt, "selfie of Ren");
+    }
+  });
+}
+
 test("all direct/conversational requests select images, not web, standalone and following a promise", () => {
   for (const messages of [[], promise]) for (const content of photoRequests) {
     const intent = resolveConversationIntent(content, { assistantCharacter: "Ren", messages });
@@ -63,6 +83,10 @@ test("negations, discussions, temporal words, and changed topics are not paid im
     "I don't want to see your outfit.", "What are you wearing today?",
     "Show me your schedule today.", "Today.", "Yes. What's the weather today?",
     "No. Are you ready?", "I'm ready for lunch today.",
+    "I wouldn't like you to send me a selfie.",
+    "I would like you not to send me a selfie.",
+    "She said, I’d like you to send me a selfie.",
+    "I’d like you to explain how selfies work.",
   ]) assert.equal(resolveConversationIntent(content, { assistantCharacter: "Ren", messages: promise }).imageRequest, null, content);
   assert.equal(resolveConversationIntent("What is the weather today?", { assistantCharacter: "Ren", messages: promise }).webSearchRequested, true);
   assert.equal(resolveConversationIntent("Search the web for outfit ideas today.", { assistantCharacter: "Ren" }).imageRequest, null);

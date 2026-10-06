@@ -16,6 +16,12 @@ const requests = [
   "send me a picture", "can you send a photo?", "show me what you’re wearing",
   "I’d love to see your outfit", "are you ready to show me your outfit for today?",
   "Ok baby. Are you ready to show me your outfit for today?",
+  "I’d like you to send me a selfie",
+  "I'd like you to send me a selfie.",
+  "I would like you to send me a selfie.",
+  "Could you send me a photo?",
+  "Would you show me a picture?",
+  "Show me a picture of yourself",
 ];
 const promise = [
   { role: "user", content: "Show me what you're wearing." },
@@ -77,6 +83,7 @@ test("regression phrasings generate one attachment through the existing real KN 
         assistantMessage: { id: 2, conversationId: 1, role: "assistant", content: delivery.content, model: delivery.result.model, metadata: delivery.metadata, createdAt: now },
       });
       assert.equal(generatedImageFromMetadata(pair.assistantMessage.metadata)?.objectPath, image.objectPath);
+      assert.equal(generatedImageFromMetadata(pair.assistantMessage.metadata)?.prompt, image.prompt);
       assert.deepEqual(JSON.parse(pair.assistantMessage.metadata!).tools, [{ id: "generate_image", model: image.model }]);
       assert.equal(delivery.result.providerId, "kindroid");
       assert.equal(generated, 1);

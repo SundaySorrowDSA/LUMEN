@@ -18,6 +18,7 @@ export function imageRequestClauses(content: string): string[] {
       .replace(/^(?:ok(?:ay)?|yes|sure)[,\s]+(?:(?:baby|babe|love|Ren)[,\s]+)?/i, "")
       .replace(/^(?:can|could|would|will)\s+you\s+(?:please\s+)?/i, "")
       .replace(/^are\s+you\s+(?:ready|able|willing)\s+to\s+/i, "")
+      .replace(/^I(?:['’]d|\s+would)\s+(?:love|like)\s+you\s+to\s+(?:please\s+)?/i, "")
       .replace(/^I(?:['’]d|\s+would)\s+(?:love|like)\s+to\s+see\s+/i, "show me "))
     .filter(Boolean);
 }
