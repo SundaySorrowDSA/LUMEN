@@ -21,7 +21,13 @@ The wardrobe sheet is reference documentation; the structured wardrobe manifest 
 
 **Why:** The user requested paper-doll guidance with reusable clothing pieces, independently selectable outfits, and no authority over the canonical face.
 
-**How to apply:** Do not read the sheet's face/eye panels as a new identity requirement or combine all outfit families. Registration of the manifest does not authorize changing production generation or automatically supplying the wardrobe sheet to the provider.
+**How to apply:** Do not read the sheet's face/eye panels as a new identity requirement or combine all outfit families. The user subsequently authorized a persistent wardrobe selector, not automatically supplying the wardrobe sheet to the provider.
+
+Reuse Ren's selected outfit across later image requests. Change only for clear context changes, explicit user requests, explicit Ren clothing choices, or an appropriate fresh selection on a new day.
+
+**Why:** The user requested clothing continuity, approved-manifest-only pieces, and legitimate rather than random wardrobe changes.
+
+**How to apply:** The selector chooses one family and preserves its pieces/variants; kitchen aprons layer over practical existing clothes, never automatically over the at-home lingerie family. Keep facial identity and provider/Kindroid behavior independent.
 
 Ren's supporting canonical text description is: adult woman; distinctly feminine appearance; petite/slender feminine build; heart-shaped feminine face; soft feminine jawline; delicate nose; full feminine lips; large luminous golden eyes; long flowing black hair; porcelain-pale skin; elegant black feather accents; ornate gold jewelry; dark elegant gothic aesthetic; feminine styling and silhouette.
 

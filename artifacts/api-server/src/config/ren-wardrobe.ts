@@ -153,7 +153,7 @@ export const REN_WARDROBE_OUTFITS = {
 } as const satisfies Record<string, RenWardrobeOutfit>;
 
 /**
- * Machine-readable wardrobe source of truth; not connected to production generation.
+ * Machine-readable wardrobe source of truth for the persistent outfit selector.
  * The image sheet is reference documentation, not an image the provider must receive.
  */
 export const REN_WARDROBE_MANIFEST = {
@@ -163,7 +163,7 @@ export const REN_WARDROBE_MANIFEST = {
   status: "approved",
   faceAuthority: "none",
   automaticGenerationInput: false,
-  productionIntegration: "not_connected",
+  productionIntegration: "wardrobe_selector",
   sourceOfTruth: "structured_manifest",
   referenceHierarchy: {
     canonicalFace: REN_VISUAL_REFERENCE.assetPath,

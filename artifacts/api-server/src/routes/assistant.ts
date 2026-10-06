@@ -63,7 +63,8 @@ import {
 import { InvalidPhotoError, preparePhotoContext } from "../tools/photo-analysis.js";
 import { extractImagePrompt, generatedImageFromMetadata } from "../tools/image-generation.js";
 import { generateConversationImage } from "../tools/ren-image-prompt.js";
-import { getCurrentRenWardrobe } from "../tools/ren-wardrobe-state.js";
+import { getOrSelectCurrentRenWardrobe } from "../tools/ren-wardrobe-state.js";
+import { isRenClothingChoice } from "../tools/ren-wardrobe-selector.js";
 import { deleteGeneratedImage, readGeneratedImage } from "../lib/generated-image-storage.js";
 import { TestImageError } from "../lib/test-image-generation.js";
 import {
@@ -536,7 +537,13 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     try {
       traceLog.info({ stage: "capability_dispatch", tool: "generate_image", conversationId: params.id, requestedBy: body.toolCall ? "tool_call" : "user_image_request" }, "Ren/LUMEN capability dispatcher");
       const image = await generateConversationImage(imagePrompt, {
-        apiKey: openAiApiKey, logger: traceLog, readWardrobe: getCurrentRenWardrobe,
+        apiKey: openAiApiKey, logger: traceLog,
+        readWardrobe: () => getOrSelectCurrentRenWardrobe({
+          prompt: imagePrompt,
+          recentUserMessages: conversation.messages.filter((message) => message.role === "user").slice(-6),
+          renChoice: [...conversation.messages].reverse().find((message) =>
+            message.role === "assistant" && isRenClothingChoice(message.content)),
+        }),
       });
       storedPath = image.objectPath;
       const result = await providerRouter.complete({

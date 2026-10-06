@@ -16,7 +16,7 @@ test("wardrobe registration has approved paper-doll metadata without face author
   assert.equal(REN_WARDROBE_REFERENCE.purpose, "paper_doll_guidance");
   assert.equal(REN_WARDROBE_REFERENCE.automaticGenerationInput, false);
   assert.equal(REN_WARDROBE_MANIFEST.faceAuthority, "none");
-  assert.equal(REN_WARDROBE_MANIFEST.productionIntegration, "not_connected");
+  assert.equal(REN_WARDROBE_MANIFEST.productionIntegration, "wardrobe_selector");
   assert.equal(REN_WARDROBE_MANIFEST.sourceOfTruth, "structured_manifest");
   assert.equal(REN_WARDROBE_MANIFEST.automaticGenerationInput, false);
   assert.deepEqual(REN_WARDROBE_MANIFEST.referenceHierarchy, {
