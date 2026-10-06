@@ -61,7 +61,7 @@ import { PhotoDiagnosticDetail } from '@/components/photo-diagnostic-detail';
 import { TestImageControl } from '@/components/test-image-control';
 import { ConversationGeneratedImage } from '@/components/conversation-generated-image';
 import { ACTIVE_CONVERSATION_KEY, readActiveConversation, resolveConversationSelection } from '@/lib/conversation-selection';
-import { readTestImageError } from '@/lib/test-image-errors';
+import { readConversationImageFailure, readTestImageError } from '@/lib/test-image-errors';
 import { useChatScroll } from '@/hooks/use-chat-scroll';
 import {
   readPhotoDiagnostics, updatePhotoDiagnostic,
@@ -769,6 +769,13 @@ function Workspace() {
           variant: 'destructive',
           duration: 30000,
         });
+        else {
+          const failure = readConversationImageFailure(error);
+          if (failure) toast({
+            title: 'Image generation failed', description: failure,
+            variant: 'destructive', duration: 30000,
+          });
+        }
         console.error('[assistant-trace]', {
           traceId,
           traceVersion: ASSISTANT_TRACE_VERSION,

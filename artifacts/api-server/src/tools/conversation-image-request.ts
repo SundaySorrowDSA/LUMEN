@@ -1,4 +1,4 @@
-import { extractImagePrompt } from "./image-generation.js";
+import { extractImagePrompt, imageRequestClauses } from "./image-generation.js";
 
 type ImageConversationContext = {
   assistantCharacter: "Ren" | null;
@@ -27,7 +27,9 @@ export function resolveConversationImageRequest(
   if (context.assistantCharacter !== "Ren") return explicit;
 
   const request = context.toolPrompt ?? content;
-  const directOutfit = request.match(/^\s*(?:please\s+)?show\s+(?:me|us)\s+what\s+you(?:['’]re|\s+are)\s+wearing\b([\s\S]*)$/i);
+  const clauses = imageRequestClauses(request);
+  const outfitPattern = /^\s*(?:please\s+)?show\s+(?:me|us)\s+what\s+you(?:['’]re|\s+are)\s+wearing\b([\s\S]*)$/i;
+  const directOutfit = clauses.map(clause => clause.match(outfitPattern)).find(Boolean);
   const framedOutfit = prompt?.match(/^(selfie|portrait|image|picture|illustration|photo)\s+showing\s+(?:me|us)\s+what\s+you(?:['’]re|\s+are)\s+wearing\b([\s\S]*)$/i);
   if (directOutfit || framedOutfit) {
     const framing = framedOutfit?.[1] ?? "image";
@@ -35,8 +37,17 @@ export function resolveConversationImageRequest(
     return {
       // A query about existing clothes is not an instruction to select new
       // clothing. "Current outfit" preserves that meaning for the old selector.
-      prompt: `${framing} of Ren showing the viewer her current outfit${suffix ? `${/^[.!?]/.test(suffix) ? "" : " "}${suffix}` : ""}`,
+      prompt: `${framing} of Ren showing the viewer her current outfit${suffix ? `${/^[.!?]/.test(suffix) ? "" : " "}${suffix}` : ""}${directOutfit && !outfitPattern.test(clauses[0]) ? `\nScene context from the user's request: ${request}` : ""}`,
       resolvedAssistantSubject: true, reason: "current_outfit",
+    };
+  }
+
+  // In this conversation an unqualified picture request is directed at Ren.
+  // Do not use this fallback for named subjects, negations, or image discussion.
+  if (prompt === null && clauses.some(clause => /^(?:please\s+)?(?:send|show|take|generate|create|make)\s+(?:(?:me|us)\s+)?(?:an?\s+)?(?:picture|photo|image|portrait|selfie)\s*[.!?]*$/i.test(clause))) {
+    return {
+      prompt: "image of Ren showing the viewer her current outfit",
+      resolvedAssistantSubject: true, reason: "implicit_assistant_selfie",
     };
   }
 

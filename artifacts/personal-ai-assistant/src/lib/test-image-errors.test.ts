@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readTestImageError } from './test-image-errors.ts';
+import { readConversationImageFailure, readTestImageError } from './test-image-errors.ts';
+
+test('conversation image failures stay clear without development-only diagnostics', () => {
+  for (const error of [
+    'Image generation or saving the result failed. Nothing was added to this conversation.',
+    'OpenAI image generation failed (HTTP 400).',
+    'Ren is unavailable. The image request was not saved.',
+  ]) assert.equal(readConversationImageFailure({ data: { error, tool: 'generate_image' } }), error);
+  assert.equal(readConversationImageFailure({ data: { error: 'Ordinary chat failure' } }), null);
+  assert.equal(readConversationImageFailure(null), null);
+});
 
 test('reads OpenAI message, status, code, type and param from a test endpoint error', () => {
   const details = {

@@ -1,5 +1,13 @@
 import type { OpenAiImageError } from '@workspace/api-client-react';
 
+/** Public conversation failures stay visible even without development diagnostics. */
+export function readConversationImageFailure(failure: unknown): string | null {
+  if (!failure || typeof failure !== 'object' || !('data' in failure)) return null;
+  const data = failure.data;
+  if (!data || typeof data !== 'object' || !('tool' in data) || data.tool !== 'generate_image') return null;
+  return 'error' in data && typeof data.error === 'string' ? data.error : 'Image generation failed.';
+}
+
 /** Only accept structured development diagnostics returned by the test endpoint. */
 export function readTestImageError(failure: unknown): OpenAiImageError | null {
   if (!failure || typeof failure !== 'object' || !('data' in failure)) return null;

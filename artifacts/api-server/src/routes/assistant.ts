@@ -63,6 +63,7 @@ import {
 import { InvalidPhotoError, preparePhotoContext } from "../tools/photo-analysis.js";
 import { generatedImageFromMetadata } from "../tools/image-generation.js";
 import { generateConversationImage } from "../tools/ren-image-prompt.js";
+import { enforceImageDeliveryStatus } from "../tools/image-delivery-status.js";
 import { resolveConversationImageRequest } from "../tools/conversation-image-request.js";
 import { getOrSelectCurrentRenWardrobe } from "../tools/ren-wardrobe-state.js";
 import { isRenClothingChoice } from "../tools/ren-wardrobe-selector.js";
@@ -532,11 +533,11 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   const imagePrompt = imageRequest?.prompt ?? null;
   if (imagePrompt !== null) {
     if (body.photoDataUrl) {
-      res.status(400).json({ error: "Send image generation and photo analysis as separate requests." });
+      res.status(400).json({ error: "Send image generation and photo analysis as separate requests.", tool: "generate_image" });
       return;
     }
     if (!openAiApiKey || !kindroidApiKey || !kindroidAiId) {
-      res.status(503).json({ error: "Image generation and Ren must both be configured. Nothing was saved." });
+      res.status(503).json({ error: "Image generation and Ren must both be configured. Nothing was saved.", tool: "generate_image" });
       return;
     }
     let storedPath: string | undefined;
@@ -576,7 +577,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
           conversationId: params.id, role: "user", content: body.content || `generate_image: ${imagePrompt}`, model: null, metadata: null,
         }).returning();
         const [assistantMessage] = await tx.insert(assistantMessagesTable).values({
-          conversationId: params.id, role: "assistant", content: result.content, model: result.model,
+          conversationId: params.id, role: "assistant", content: enforceImageDeliveryStatus(result.content, true), model: result.model,
           metadata: JSON.stringify({
             providerId: result.providerId, route: result.metadata.routedBy, mode: result.metadata.mode,
             generatedImage: image, tools: [{ id: "generate_image", model: image.model }], approvalRequired: false,
@@ -597,7 +598,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
         upstreamStatus: failure.upstreamStatus,
         ...(diagnostics ? { openaiResponseBody: diagnostics.body, openaiError: diagnostics.error } : {}),
       }, "Conversation image capability failed");
-      res.status(failure.status).json({ error: failure.message, ...(diagnostics ? { openaiError: diagnostics.error } : {}) });
+      res.status(failure.status).json({ error: failure.message, tool: "generate_image", ...(diagnostics ? { openaiError: diagnostics.error } : {}) });
     }
     return;
   }
@@ -880,9 +881,13 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     res.status(503).json({ error: "Ren is unavailable. The consultation was not saved." });
     return;
   }
-  const assistantContent = workSchedule
+  const groundedContent = workSchedule
     ? ensureWorkScheduleResponseAccuracy(result.content, workSchedule)
     : result.content;
+  const assistantContent = enforceImageDeliveryStatus(groundedContent, false);
+  if (assistantContent !== groundedContent) traceLog.warn({
+    stage: "image_status_claim_corrected", imageGenerationStarted: false,
+  }, "Ungrounded image-rendering claim was not saved");
 
   const [userMessage] = await db
     .insert(assistantMessagesTable)

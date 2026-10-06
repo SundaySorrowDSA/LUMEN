@@ -20,3 +20,9 @@ Keep image generation explicitly requested: the Image Sandbox is temporary exper
 **Why:** Sharing the working OpenAI transport must not silently turn sandbox experiments into conversation history or charge for ordinary discussion of images. The user required keeping normal conversation and Kindroid integration unchanged.
 
 **How to apply:** Reuse generation and bounded retries across both paths, but leave persistence with the conversation caller. Dispatch paid generation from explicit image requests or structured capability calls, not arbitrary mentions.
+
+Ren must only describe an image as rendering when a real generation is underway; completed images must be attached, and failures must be explicit.
+
+**Why:** The user reproduced text-only promises and rendering claims even though no image capability had been invoked. Kindroid's conversational prose is not evidence of tool execution.
+
+**How to apply:** Ground image-status language in dispatcher state. Recognize explicit requests expressed as polite questions or later sentences without treating ordinary image discussion as generation intent. Keep public failure reporting independent of development-only provider diagnostics.

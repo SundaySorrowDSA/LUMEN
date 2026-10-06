@@ -11,6 +11,9 @@ import { selectRenWardrobe, wardrobePrompt } from "./ren-wardrobe-selector.js";
 
 const original = "Generate a selfie showing me what you’re wearing right now.";
 const renRequests = [
+  "I wanna go out for lunch.    Wanna come?   Put on some clothes. Show me what you’re wearing so I can match you",
+  "Can you Send me a picture?",
+  "Could you please send me a photo?",
   original,
   "Show me what you’re wearing.",
   "Send me a selfie.",
@@ -21,6 +24,21 @@ const renRequests = [
   "Show me what you are wearing in the kitchen.",
   "Generate a selfie showing me what you're wearing right now.",
 ];
+
+test("the reproduced requests dispatch, preserve scene context, and do not turn discussion into paid calls", () => {
+  const outfit = resolveConversationImageRequest(renRequests[0], { assistantCharacter: "Ren" });
+  assert.match(outfit!.prompt, /Ren/);
+  assert.match(outfit!.prompt, /go out for lunch/);
+  assert.match(outfit!.prompt, /Put on some clothes/);
+  for (const content of [
+    "Do not send me a picture.",
+    "Can you explain image generation?",
+    "She said she would send me a picture.",
+    "I sent you a picture.",
+    "Can you describe this photo?",
+  ]) assert.equal(resolveConversationImageRequest(content, { assistantCharacter: "Ren" }), null, content);
+  assert.equal(resolveConversationImageRequest("Can you send me a picture?", { assistantCharacter: null }), null);
+});
 const genericRequests = [
   "generate a castle",
   "show me a crow",
