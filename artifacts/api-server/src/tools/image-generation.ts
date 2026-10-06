@@ -11,22 +11,20 @@ export function extractImagePrompt(content: string): string | null {
   return null;
 }
 
-/** Sentence boundaries and polite questions, not arbitrary image mentions. */
+/** Legacy generic-image grammar; Ren's natural-language intent is classified
+ * separately from speech-act/subject features, not phrase substitutions.
+ */
 export function imageRequestClauses(content: string): string[] {
   return [content, ...content.split(/[.!?\n]+\s*/)]
     .map(clause => clause.trim()
-      .replace(/^(?:ok(?:ay)?|yes|sure)[,\s]+(?:(?:baby|babe|love|Ren)[,\s]+)?/i, "")
-      .replace(/^(?:can|could|would|will)\s+you\s+(?:please\s+)?/i, "")
-      .replace(/^are\s+you\s+(?:ready|able|willing)\s+to\s+/i, "")
-      .replace(/^I(?:['’]d|\s+would)\s+(?:love|like)\s+you\s+to\s+(?:please\s+)?/i, "")
-      .replace(/^I(?:['’]d|\s+would)\s+(?:love|like)\s+to\s+see\s+/i, "show me "))
+      .replace(/^(?:can|could|would|will)\s+you\s+(?:please\s+)?/i, ""))
     .filter(Boolean);
 }
 
 function extractDirectImagePrompt(content: string): string | null {
   const command = content.match(/^\s*(?:\/image\s+|generate_image\s*:\s*)([\s\S]+)$/i);
   if (command) return command[1].trim() || null;
-  const natural = content.match(/^\s*(?:please\s+)?(?:generate|create|make|draw|send|take|show)\s+(?:(?:me|us)\s+)?(?:an?\s+)?(image|picture|illustration|selfie|portrait|photo)\s+(of|showing|depicting)\s+([\s\S]+)$/i);
+  const natural = content.match(/^\s*(?:please\s+)?(?:generate|create|make|draw|send|take|show)\s+(?:(?:me|us)\s+)?(?:(?:an?|another|one|more|different|additional|new|quick|recent)\s+)*(image|picture|illustration|selfie|portrait|photo)\s+(of|showing|depicting)\s+([\s\S]+)$/i);
   if (natural) {
     const subject = natural[3].trim();
     // "Showing me" may identify the viewer, not the depicted subject. Keep

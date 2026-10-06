@@ -61,10 +61,9 @@ import {
 } from "../tools/openai-consultation-policy.js";
 import { InvalidPhotoError, preparePhotoContext } from "../tools/photo-analysis.js";
 import { generatedImageFromMetadata } from "../tools/image-generation.js";
-import { generateConversationImage } from "../tools/ren-image-prompt.js";
 import { enforceImageDeliveryStatus } from "../tools/image-delivery-status.js";
 import { resolveConversationIntent } from "../tools/conversation-intent.js";
-import { prepareConversationImageDelivery } from "../tools/conversation-image-delivery.js";
+import { dispatchConversationImage } from "../tools/conversation-image-delivery.js";
 import { appendSuccessfulConsultation } from "../tools/provider-tool-content.js";
 import { getOrSelectCurrentRenWardrobe } from "../tools/ren-wardrobe-state.js";
 import { isRenClothingChoice } from "../tools/ren-wardrobe-selector.js";
@@ -550,18 +549,18 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
         subject: "Ren", reason: imageRequest.reason,
         resolvedPromptLength: imagePrompt.length,
       }, "Conversational image subject resolved before character detection");
-      const image = await generateConversationImage(imagePrompt, {
-        apiKey: openAiApiKey, logger: traceLog,
-        readWardrobe: () => getOrSelectCurrentRenWardrobe({
-          prompt: imagePrompt,
-          recentUserMessages: conversation.messages.filter((message) => message.role === "user").slice(-6),
-          renChoice: [...conversation.messages].reverse().find((message) =>
-            message.role === "assistant" && isRenClothingChoice(message.content)),
-        }),
-      });
-      storedPath = image.objectPath;
-      const delivery = await prepareConversationImageDelivery({
-        content: body.content, prompt: imagePrompt, image, messages: conversation.messages,
+      const delivery = await dispatchConversationImage({
+        content: body.content, prompt: imagePrompt, messages: conversation.messages,
+        generation: {
+          apiKey: openAiApiKey, logger: traceLog,
+          readWardrobe: () => getOrSelectCurrentRenWardrobe({
+            prompt: imagePrompt,
+            recentUserMessages: conversation.messages.filter((message) => message.role === "user").slice(-6),
+            renChoice: [...conversation.messages].reverse().find((message) =>
+              message.role === "assistant" && isRenClothingChoice(message.content)),
+          }),
+        },
+        onGenerated: image => { storedPath = image.objectPath; },
         complete: request => providerRouter.complete(request),
       });
       const result = delivery.result;

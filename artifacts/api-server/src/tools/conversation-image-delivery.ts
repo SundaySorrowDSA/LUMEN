@@ -1,7 +1,27 @@
 import type { ModelRequest, ModelResult } from "@workspace/assistant-providers";
 import { TestImageError } from "../lib/test-image-generation.js";
 import { enforceImageDeliveryStatus } from "./image-delivery-status.js";
-import type { generateConversationImage } from "./ren-image-prompt.js";
+import { generateConversationImage } from "./ren-image-prompt.js";
+
+/** Shared by the live dispatcher and isolated transport regressions.
+ * Every invocation generates/stores a fresh image before the unchanged KN flow.
+ */
+export async function dispatchConversationImage(input: {
+  content: string;
+  prompt: string;
+  messages: ReadonlyArray<{ role: string; content: string }>;
+  generation: Parameters<typeof generateConversationImage>[1];
+  complete: (request: ModelRequest) => Promise<ModelResult>;
+  onGenerated?: (image: Awaited<ReturnType<typeof generateConversationImage>>) => void;
+}) {
+  const image = await generateConversationImage(input.prompt, input.generation);
+  input.onGenerated?.(image);
+  const delivery = await prepareConversationImageDelivery({
+    content: input.content, prompt: input.prompt, image,
+    messages: input.messages, complete: input.complete,
+  });
+  return { ...delivery, image };
+}
 
 /** The existing successful image -> KN acknowledgement -> attachment contract.
  * Called only after generation/storage succeeds. Errors never become KN input.

@@ -1,0 +1,13 @@
+Inspect Lumen’s current message, tool-routing, image-generation, prompt-assembly, and KN delivery flow before changing anything. Trace the existing order of operations and identify any API requirements that constrain it.
+
+Update routing so Lumen recognizes the intent to generate a picture of Ren from the user’s message and relevant conversation context, rather than relying on exact phrases or isolated keywords. For image requests, route to image generation before KN’s ordinary text response can consume the request with a text-only promise. Keep the existing phrase examples as regression tests for the shared intent, and verify the logic generalizes beyond those exact examples.
+
+Keep intent recognition, provider selection, and image delivery as separate steps. Route through Lumen’s provider-neutral image-generation capability, using the currently configured provider. Do not add or switch providers. Leave room to add another image provider later without changing the dispatcher.
+
+Preserve KN as the conversation and delivery channel. Follow the actual API requirements to keep the user turn in the KN conversation and attach the generated image through the existing flow. Avoid duplicate user messages or image generations. Ren must not claim she sent an image unless generation and attachment succeed; report failures clearly.
+
+Preserve ordinary text chat and uploaded-image analysis. Make the smallest change compatible with the existing architecture. Add mocked tests for image-intent routing, successful attachment, generation or attachment failures, ordinary chat, and uploaded-image analysis. Do not make paid generations or send live KN messages for testing.
+
+Preserve any existing paper-doll system and its selected outfit state. Image requests must use the existing prompt assembly so Ren’s current outfit and relevant scene context carry through. Do not change outfit selection or persistence as part of this routing work. If the paper-doll outfit state is not currently wired into image prompt assembly, report that rather than implementing it in this task.
+
+Report the flow before and after, changed files, test results, and any API constraint that affects the routing order.

@@ -1,0 +1,46 @@
+Refactor LUMEN’s image dispatcher to recognize the semantic intent “generate and send me an image of Ren” from the full message and relevant conversation context. Don’t keep adding one-off phrase rules. Use the examples below as a labeled positive test set for the shared intent, not as exact strings that each need their own routing condition.
+
+Common direct requests
+
+* “Send me a photo.”
+* “Can you send me a picture?”
+* “I’d like you to send me a selfie.”
+* “Could you share a pic of yourself?”
+* “Mind snapping me a photo?”
+* “Show me a picture of yourself.”
+* “Can I see a selfie?”
+* “Let me see what you look like.”
+* “Can you show me your face?”
+* “Take a selfie for me.”
+* “I’d love a photo of you.”
+* “Can I get a photo of you?”
+* “Send me a pic of you.”
+* “Would you take a selfie and send it?”
+* “Can you snap a quick picture?”
+* “Share a photo with me.”
+* “Got a selfie for me?”
+* “I want to see a picture of you.”
+* “Let me have a look at you.”
+* “Show yourself to me.”
+* “Take a quick pic for me.”
+* “Could I see what you look like right now?”
+* “Do you have a recent picture?”
+* “I want a close-up of your face.”
+* “Can I have another selfie of you?”
+
+Outfit requests
+
+* “Show me what you’re wearing.”
+* “Send me a picture of your outfit.”
+* “Let me see today’s look.”
+* “Can I see the outfit you picked?”
+* “Give me a fit check.”
+* “Take a fit pic for me.”
+* “Show me your lunch-date look.”
+* “I want to see how you dressed.”
+
+Handle polite and indirect wording, synonyms, contractions, and varied word order as the same intent. Use recent context to resolve short follow-ups such as “Ready?” or “Let me see” after Ren has offered or promised a picture. “Another selfie” means a new generation, even if a previous image was already delivered.
+
+Add negative controls so ordinary mentions don’t trigger generation: asking how to take a selfie, asking LUMEN to inspect an uploaded photo, or asking for a picture of a different subject. Generate paraphrases not listed above and use them as holdout tests. Don’t add exact-match rules for each sentence.
+
+Preserve the existing image provider and KN delivery flow; don’t add a paid provider. Verify that image requests select the image tool and attach the result, and that ordinary conversation doesn’t. A reply promising or narrating a selfie doesn’t count as success without an actual generated image and attachment. Report the routing changes and test results.

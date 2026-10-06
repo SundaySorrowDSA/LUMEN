@@ -40,6 +40,50 @@ for (const content of [
   });
 }
 
+const deliveredSelfie = [
+  { role: "user", content: "Show me a picture of yourself" },
+  { role: "assistant", content: "Here is your selfie.", metadata: '{"generatedImage":{"prompt":"selfie of Ren","objectPath":"/objects/generated/abc-001.png"}}' },
+];
+
+for (const content of [
+  "Can I have another selfie of you?",
+  "Could I have one more selfie of you?",
+  "Send me another selfie.",
+  "One more selfie.",
+  "Can I have another selfie of you from a different angle?",
+  "Show me a picture of yourself",
+]) {
+  test(`new image request is never suppressed by a completed attachment: ${content}`, () => {
+    for (const messages of [[], promise, deliveredSelfie]) {
+      const intent = resolveConversationIntent(content, { assistantCharacter: "Ren", messages });
+      assert.ok(intent.imageRequest, content);
+      assert.equal(intent.webSearchRequested, false);
+      assert.equal(intent.imageRequest.resolvedAssistantSubject, true);
+      assert.match(intent.imageRequest.prompt, /\bRen\b/);
+      if (/angle/i.test(content)) assert.match(intent.imageRequest.prompt, /different angle/i);
+    }
+  });
+}
+
+test("another/one-more/angle shorthand requests a fresh image only with recent image context", () => {
+  for (const content of ["Another one.", "One more.", "A different angle.", "Send me a different angle.", "Can I have a different angle?"]) {
+    const intent = resolveConversationIntent(content, { assistantCharacter: "Ren", messages: deliveredSelfie });
+    assert.ok(intent.imageRequest, content);
+    assert.equal(intent.webSearchRequested, false);
+    assert.match(intent.imageRequest.prompt, /fresh image/);
+    if (/angle/i.test(content)) assert.match(intent.imageRequest.prompt, /different camera angle/);
+    assert.equal(resolveConversationImageRequest(content, { assistantCharacter: "Ren" }), null);
+    for (const messages of [
+      [...deliveredSelfie, { role: "user", content: "What's for lunch?" }],
+      [...deliveredSelfie, { role: "user", content: "Don't send another selfie." }],
+    ]) assert.equal(resolveConversationImageRequest(content, { assistantCharacter: "Ren", messages }), null);
+  }
+  for (const content of ["Ready?", "Send it.", "Another one. What's the weather today?", "No. A different angle."]) {
+    assert.equal(resolveConversationImageRequest(content, { assistantCharacter: "Ren", messages: deliveredSelfie }), null, content);
+  }
+  assert.equal(resolveConversationImageRequest("Send me one more photo of a crow.", { assistantCharacter: "Ren" })?.resolvedAssistantSubject, false);
+});
+
 test("all direct/conversational requests select images, not web, standalone and following a promise", () => {
   for (const messages of [[], promise]) for (const content of photoRequests) {
     const intent = resolveConversationIntent(content, { assistantCharacter: "Ren", messages });

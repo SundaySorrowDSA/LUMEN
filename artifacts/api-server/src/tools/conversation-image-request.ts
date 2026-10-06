@@ -1,4 +1,6 @@
-import { extractImagePrompt, imageRequestClauses } from "./image-generation.js";
+import { extractImagePrompt, generatedImageFromMetadata, imageRequestClauses } from "./image-generation.js";
+import { classifySemanticImageIntent, isAssistantImageOffer, referencesCurrentImage, visibleImageIntentText, type SemanticImageIntent } from "./semantic-image-intent.js";
+import { depictsRen } from "./ren-image-prompt.js";
 
 type ImageConversationContext = {
   assistantCharacter: "Ren" | null;
@@ -12,95 +14,129 @@ export type ConversationImageRequest = {
   reason: "current_outfit" | "assistant_reference" | "implicit_assistant_selfie" | "explicit_image_request";
 };
 
-/**
- * Resolve conversational roles, not character appearance. All Ren identity,
- * reference, and wardrobe construction stays in generateConversationImage.
- * An explicit tool prompt takes precedence over the accompanying chat text.
- */
+/** Resolve intent/roles, never appearance, wardrobe, provider, or moderation. */
 export function resolveConversationImageRequest(
   content: string,
   context: ImageConversationContext,
 ): ConversationImageRequest | null {
-  const prompt = context.toolPrompt ?? extractImagePrompt(content);
-  const explicit = prompt === null ? null : {
-    prompt, resolvedAssistantSubject: false, reason: "explicit_image_request" as const,
-  };
-  if (context.assistantCharacter !== "Ren") return explicit;
+  // Structured capability input has precedence and keeps the existing contract.
+  if (context.toolPrompt !== undefined) return resolveExplicitPrompt(context.toolPrompt, context.assistantCharacter);
+  const prompt = extractImagePrompt(content);
+  if (context.assistantCharacter !== "Ren") return prompt === null ? null : resolveExplicitPrompt(prompt, null);
+  if (/^\s*(?:\/image\s+|generate_image\s*:)/i.test(content)) {
+    return prompt === null ? null : resolveExplicitPrompt(prompt, "Ren");
+  }
+  const intent = classifySemanticImageIntent(content);
+  if (intent.blocked) return null;
+  if (intent.target === "assistant") return presentRenRequest(content, intent, prompt);
+  if (intent.target === "previous_image") {
+    const state = recentImageContext(context.messages ?? []);
+    const previous = intent.repeat ? state.pending ?? state.recent : state.pending;
+    if (!previous) return null;
+    return intent.repeat ? repeatRequest(previous, intent) : previous;
+  }
+  // Other subjects remain generic, never silently rewritten to Ren.
+  // Quoted/code examples cannot authorize the legacy generic tool either.
+  const visiblePrompt = extractImagePrompt(visibleImageIntentText(content));
+  return prompt === null || visiblePrompt === null ? null : resolveExplicitPrompt(prompt, null);
+}
 
-  const request = context.toolPrompt ?? content;
-  const clauses = imageRequestClauses(request);
-   const outfitPattern = /^\s*(?:please\s+)?show\s+(?:me|us)\s+(?:what\s+you(?:['’]re|\s+are)\s+wearing|your\s+(?:current\s+|today['’]s\s+)?outfit)\b([\s\S]*)$/i;
-  const directOutfit = clauses.map(clause => clause.match(outfitPattern)).find(Boolean);
-  const framedOutfit = prompt?.match(/^(selfie|portrait|image|picture|illustration|photo)\s+showing\s+(?:me|us)\s+what\s+you(?:['’]re|\s+are)\s+wearing\b([\s\S]*)$/i);
-  if (directOutfit || framedOutfit) {
-    const framing = framedOutfit?.[1] ?? "image";
-    const suffix = (framedOutfit?.[2] ?? directOutfit?.[1] ?? "").trim();
+function repeatRequest(previous: ConversationImageRequest, intent: SemanticImageIntent): ConversationImageRequest {
+  return {
+    ...previous,
+    prompt: `${previous.prompt}\nGenerate a fresh image, not a reuse of the previous attachment.${intent.differentAngle ? " Use a different camera angle." : ""}`,
+  };
+}
+
+function resolveExplicitPrompt(prompt: string, character: "Ren" | null): ConversationImageRequest {
+  const explicit = { prompt, resolvedAssistantSubject: false, reason: "explicit_image_request" as const };
+  if (character !== "Ren") return explicit;
+  if (/^selfie[.!]?\s*$/i.test(prompt)) return {
+    prompt: "selfie of Ren", resolvedAssistantSubject: true, reason: "implicit_assistant_selfie",
+  };
+  const framedOutfit = prompt.match(/^(selfie|portrait|image|picture|illustration|photo)\s+showing\s+(?:me|us)\s+what\s+you(?:['’]re|\s+are)\s+wearing\b([\s\S]*)$/i);
+  if (framedOutfit) return {
+    prompt: `${framedOutfit[1]} of Ren showing the viewer her current outfit${framedOutfit[2]}`,
+    resolvedAssistantSubject: true, reason: "current_outfit",
+  };
+  // Presentation of an already resolved primary role, not phrase routing.
+  const primaryRole = /^((?:(?:selfie|portrait|image|picture|illustration|photo)\s+(?:of|depicting|showing)\s+)?)(you(?:rself)?)\b/i;
+  return primaryRole.test(prompt) ? {
+    prompt: prompt.replace(primaryRole, "$1Ren"),
+    resolvedAssistantSubject: true, reason: "assistant_reference",
+  } : explicit;
+}
+
+function presentRenRequest(content: string, intent: SemanticImageIntent, explicitPrompt: string | null): ConversationImageRequest {
+  if (explicitPrompt !== null) {
+    const resolved = resolveExplicitPrompt(explicitPrompt, "Ren");
+    if (resolved.resolvedAssistantSubject) return resolved;
+  }
+  if (intent.kind === "outfit") {
+    const suffix = intent.clause.match(/\b(?:wearing|outfit)\b([\s\S]*)$/i)?.[1]?.trim() ?? "";
+    const details = suffix ? `${/^[.!?]/.test(suffix) ? "" : " "}${suffix}` : "";
+    const directClause = imageRequestClauses(content)[0];
+    const scene = content.trim() !== intent.clause.trim() &&
+      !/^\s*(?:can|could|would|will|are)\b/i.test(content)
+      ? `\nScene context from the user's request: ${content}` : "";
+    // Preserve the pre-existing canonical suffix/punctuation for direct outfit
+    // prompts while letting the shared semantic classifier decide the route.
+    const terminal = !scene && directClause?.endsWith(".") && !details.endsWith(".") ? "." : "";
     return {
-      // A query about existing clothes is not an instruction to select new
-      // clothing. "Current outfit" preserves that meaning for the old selector.
-      prompt: `${framing} of Ren showing the viewer her current outfit${suffix ? `${/^[.!?]/.test(suffix) ? "" : " "}${suffix}` : ""}${directOutfit && !outfitPattern.test(clauses[0]) ? `\nScene context from the user's request: ${request}` : ""}`,
+      prompt: `${intent.framing} of Ren showing the viewer her current outfit${details}${terminal}${scene}`,
       resolvedAssistantSubject: true, reason: "current_outfit",
     };
   }
-
-  // In this conversation an unqualified picture request is directed at Ren.
-  // Do not use this fallback for named subjects, negations, or image discussion.
-  if (prompt === null && clauses.some(clause => /^(?:please\s+)?(?:send|show|take|generate|create|make)\s+(?:(?:me|us)\s+)?(?:an?\s+)?(?:picture|photo|image|portrait|selfie)\s*[.!?]*$/i.test(clause))) {
-    return {
-      prompt: "image of Ren showing the viewer her current outfit",
-      resolvedAssistantSubject: true, reason: "implicit_assistant_selfie",
-    };
-  }
-
-  const seeAssistant = request.match(/^\s*(?:please\s+)?let\s+(?:me|us)\s+see\s+you(?:rself)?\b([\s\S]*)$/i);
-  if (seeAssistant) return {
-    prompt: `image of Ren${seeAssistant[1]}`,
+  const angle = intent.differentAngle ? " from a different angle" : "";
+  // Keep scene/pose constraints from novel phrasings, not just their image noun.
+  const context = /\b(?:in|at|with|while|smiling|sitting|standing|wearing|face|eyes|smile)\b/i.test(content)
+    ? `\nScene context from the user's request: ${content}` : "";
+  if (intent.framing === "selfie") return {
+    prompt: `selfie of Ren${angle}${context}`, resolvedAssistantSubject: true, reason: "implicit_assistant_selfie",
+  };
+  if (intent.framing === "portrait") return {
+    prompt: `portrait of Ren${intent.closeUp ? " in close-up" : ""}${angle}${context}`, resolvedAssistantSubject: true, reason: "assistant_reference",
+  };
+  return {
+    prompt: `image of Ren showing the viewer her current outfit${angle}${context}`,
     resolvedAssistantSubject: true, reason: "assistant_reference",
   };
-
-  if (prompt === null) {
-    const pending = !context.toolPrompt && isImageFollowUp(content)
-      ? pendingImageRequest(context.messages ?? []) : null;
-    return pending;
-  }
-  if (/^selfie[.!]?\s*$/i.test(prompt)) return {
-    prompt: "selfie of Ren",
-    resolvedAssistantSubject: true, reason: "implicit_assistant_selfie",
-  };
-  // Only a primary depicted "you/yourself" denotes the assistant. Do not
-  // rewrite user subjects ("me/myself") or possessions ("your book"), nor
-  // a secondary "you" in e.g. "a crow looking at you".
-  const subject = /^((?:(?:selfie|portrait|image|picture|illustration|photo)\s+(?:of|depicting|showing)\s+)?)(you(?:rself)?)\b/i;
-  if (subject.test(prompt)) return {
-    prompt: prompt.replace(subject, "$1Ren"),
-    resolvedAssistantSubject: true, reason: "assistant_reference",
-  };
-  return explicit;
 }
 
-/** Short consent/readiness questions need a nearby unresolved image request.
- * Neither the word "today" nor a stale promise alone authorizes a paid call.
+/** Bounded conversation state. Only attachment metadata completes delivery;
+ * promises/narration never do. Explicit repeats may reference a delivered image.
  */
-function isImageFollowUp(content: string): boolean {
-  const sentences = content.split(/[.!?\n]+\s*/).map(sentence => sentence.trim()).filter(Boolean);
-  return sentences.length > 0 && sentences.every(sentence =>
-    [sentence, ...imageRequestClauses(sentence)].some(clause =>
-      /^(?:(?:yes|ok(?:ay)?|sure|please)(?:\s+(?:baby|babe|love))?|(?:are\s+you\s+)?ready(?:\s+(?:now|yet))?|(?:can\s+I|let\s+me)\s+see\s+(?:it|that)|(?:send|show|share)\s+(?:(?:me|us)\s+)?(?:it|that)(?:\s+(?:now|please))?|(?:what|how)\s+about\s+(?:that|the|my)\s+(?:picture|photo|image|selfie)|(?:go\s+ahead|do\s+it|try\s+again))[.!?]*$/i.test(clause)));
-}
-
-function pendingImageRequest(messages: NonNullable<ImageConversationContext["messages"]>): ConversationImageRequest | null {
+function recentImageContext(messages: NonNullable<ImageConversationContext["messages"]>) {
   let pending: ConversationImageRequest | null = null;
+  let recent: ConversationImageRequest | null = null;
   for (const message of messages.slice(-8)) {
     if (message.role === "user") {
-      const direct = resolveConversationImageRequest(message.content, { assistantCharacter: "Ren" });
+      const decision = classifySemanticImageIntent(message.content);
+      const direct = decision.target !== "previous_image"
+        ? resolveConversationImageRequest(message.content, { assistantCharacter: "Ren" }) : null;
       if (direct) pending = direct;
-      else if (!isImageFollowUp(message.content)) pending = null;
-    } else if (message.role === "assistant") {
-      let attached = false;
-      try { attached = Boolean(JSON.parse(message.metadata ?? "{}").generatedImage); } catch { /* Legacy text metadata. */ }
-      if (attached || /\b(?:cancel(?:led|ed)?|won['’]t|will not|can['’]t|cannot)\b[\s\S]*\b(?:send|generate|picture|photo|image|selfie)\b/i.test(message.content)) {
+      else if (decision.target === "previous_image" && decision.repeat && (pending ?? recent)) {
+        pending = repeatRequest((pending ?? recent)!, decision);
+      } else if (decision.target !== "previous_image" && !referencesCurrentImage(message.content)) {
         pending = null;
-      } else if (/\b(?:I(?:['’]ll| will|['’]m going to| am going to)|let me)\s+(?:send|share|show|take|generate|make|attach)\b[^.!?\n]{0,100}\b(?:picture|photo|image|selfie|portrait|outfit)\b/i.test(message.content)) {
+        recent = null;
+      }
+    } else if (message.role === "assistant") {
+      let completed = false;
+      try { completed = Boolean(JSON.parse(message.metadata ?? "{}").generatedImage); } catch { /* Legacy metadata. */ }
+      if (completed) {
+        const saved = generatedImageFromMetadata(message.metadata ?? null);
+        recent = pending ?? recent ?? (saved ? (
+          depictsRen(saved.prompt) ? {
+            prompt: "image of Ren showing the viewer her current outfit",
+            resolvedAssistantSubject: true, reason: "assistant_reference",
+          } : resolveExplicitPrompt(saved.prompt, null)
+        ) : null);
+        pending = null;
+      } else if (classifySemanticImageIntent(message.content).blocked) {
+        pending = null;
+        recent = null;
+      } else if (isAssistantImageOffer(message.content)) {
         pending ??= {
           prompt: "image of Ren showing the viewer her current outfit",
           resolvedAssistantSubject: true, reason: "implicit_assistant_selfie",
@@ -108,5 +144,5 @@ function pendingImageRequest(messages: NonNullable<ImageConversationContext["mes
       }
     }
   }
-  return pending;
+  return { pending, recent };
 }

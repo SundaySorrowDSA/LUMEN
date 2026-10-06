@@ -29,9 +29,15 @@ Ren must only describe an image as rendering when a real generation is underway;
 
 The user says Ren already sends generated images through Kindroid Native (KN) reliably. Preserve that working path when correcting LUMEN's image intent routing; do not replace the provider or character configuration to solve a routing miss.
 
-**Why:** The user explicitly identified conversational image requests and follow-ups to promised pictures being misrouted to web search, not a broken generation/delivery pipeline.
+**Why:** The user explicitly identified conversational image requests and follow-ups to promised pictures being misrouted to web search, not a broken generation/delivery pipeline. They also require explicit repeat requests to produce a fresh tool call and attachment, not be treated as duplicate deliveries.
 
-**How to apply:** Resolve direct and conversational photo intent before temporal web-search signals; use nearby unresolved requests/promises for short follow-ups, but do not repeat completed images or revive cancelled/stale requests. A personal outfit question is not web research merely because it says "today."
+**How to apply:** Resolve direct and conversational photo intent before temporal web-search signals. Completed images clear ambiguous pending follow-ups, but explicit "another"/"one more"/context-backed "a different angle" requests authorize fresh generation, even after delivery. Do not revive cancelled/stale requests. A personal outfit question is not web research merely because it says "today."
+
+The user requires shared semantic intent recognition, not more one-off sentence rules. Supplied examples are labeled positive tests; independent paraphrases and ordinary-conversation/inspection/other-subject negatives must also be verified.
+
+**Why:** Repeated surface-wording fixes kept missing equivalent requests. The requested change is to recognize receiving an image of Ren or her outfit across different wording, not to whitelist the supplied sentences.
+
+**How to apply:** Compose request, visual-target, subject, and conversation-state evidence. Preserve the existing generic-image capability separately from Ren's intent. Do not add a paid classification provider or change the established generation/KN pipeline. Verify actual tool calls and PNG attachments, never narration alone.
 
 Internal tool errors and fallback diagnostics must stay in LUMEN's UI or logs, never in a message sent to KN.
 
