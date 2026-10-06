@@ -98,3 +98,31 @@ mtime_ms = 1791247080642
 storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/507809e4-e87f-4ab1-b283-8a2ec38e1887/d0de3e87-819c-44a7-a92f-d88be4795adc"
 storage_version_token = "1791247143256882"
 content_type = "image/png"
+
+[[outputs]]
+id = "_E6bouQjbMDpb1124da7H"
+uri = "file://artifacts/api-server/assets/characters/ren/ren-wardrobe-reference-v1.png"
+type = "image"
+title = "Ren wardrobe reference v1 — approved documentation"
+description = "Unmodified wardrobe reference sheet. No facial identity authority and no automatic production-generation input."
+logical_id = "3459ea7c-2cd8-4cc1-b3c2-47d57d8061ab"
+content_hash = "sha256:c7f4b302bfa99d51f4ae9bacaa3e95355ec73507d54c07cb35981e539675b493"
+size = 2442805
+mtime_ms = 1791248875412
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/3459ea7c-2cd8-4cc1-b3c2-47d57d8061ab/f874d85a-6384-4513-a8d0-cd2c9e240980"
+storage_version_token = "1791248987999700"
+content_type = "image/png"
+
+[[outputs]]
+id = "SobhO5mcuNXOxqYTZvKVy"
+uri = "file://.local/verification/ren-wardrobe/manifest-report.txt"
+type = "text"
+title = "Complete Ren wardrobe manifest — JSON snapshot"
+description = "All 13 reusable pieces, four outfit groups, context tags, required/optional choices, variants, exclusions, notes, and reference hierarchy. Generated directly from the TypeScript source of truth."
+logical_id = "49bf0f94-b669-4a1f-bc64-ee0581f78288"
+content_hash = "sha256:d929f2888c8c7d8298d0518388d1bd154c794ec0b436e9cdaa21854f7496a765"
+size = 11891
+mtime_ms = 1791248938205
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/49bf0f94-b669-4a1f-bc64-ee0581f78288/8e1968e0-e05f-4131-8721-5a5766f779b6"
+storage_version_token = "1791248988559939"
+content_type = "text/plain"

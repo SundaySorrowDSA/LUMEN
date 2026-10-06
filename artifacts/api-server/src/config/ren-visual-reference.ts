@@ -40,3 +40,19 @@ export const REN_LOOKBOOK_REFERENCE = {
     "Never use this lookbook to redefine or override Ren's canonical facial identity.",
   ],
 } as const;
+
+/** Reference documentation only; the structured wardrobe manifest holds clothing data. */
+export const REN_WARDROBE_REFERENCE = {
+  character: "Ren",
+  referenceVersion: "v1",
+  wardrobeAsset: "ren-wardrobe-reference-v1.png",
+  assetPath: "artifacts/api-server/assets/characters/ren/ren-wardrobe-reference-v1.png",
+  role: "wardrobe_reference",
+  status: "approved",
+  faceAuthority: "none",
+  wardrobePriority: "high",
+  accessoryPriority: "high",
+  purpose: "paper_doll_guidance",
+  automaticGenerationInput: false,
+  note: "Reference documentation for wardrobe families, pieces, accessories, and context of use. The TypeScript wardrobe manifest is the machine-readable clothing source of truth. Facial and eye-style panels have no authority over ren-face-v1.png. Do not copy sheet text, labels, typography, borders, or collage layout into generated images.",
+} as const;

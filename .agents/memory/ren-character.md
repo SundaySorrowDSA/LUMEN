@@ -17,6 +17,12 @@ The user's approved lookbook defines how Ren generally dresses and presents hers
 
 **How to apply:** Keep the lookbook's black-and-gold presentation, subtle feathers, practical clothing, and restrained accessories separate from facial identity. Do not reproduce its labels or collage layout or increase fantasy ornamentation. Registration alone is not permission to send it automatically to generation.
 
+The wardrobe sheet is reference documentation; the structured wardrobe manifest is the machine-readable clothing source of truth. Wardrobe families are at-home, daytime out, casual home, and kitchen helping. Casual/kitchen lingerie or burlesque styling requires an explicit request.
+
+**Why:** The user requested paper-doll guidance with reusable clothing pieces, independently selectable outfits, and no authority over the canonical face.
+
+**How to apply:** Do not read the sheet's face/eye panels as a new identity requirement or combine all outfit families. Registration of the manifest does not authorize changing production generation or automatically supplying the wardrobe sheet to the provider.
+
 Ren's supporting canonical text description is: adult woman; distinctly feminine appearance; petite/slender feminine build; heart-shaped feminine face; soft feminine jawline; delicate nose; full feminine lips; large luminous golden eyes; long flowing black hair; porcelain-pale skin; elegant black feather accents; ornate gold jewelry; dark elegant gothic aesthetic; feminine styling and silhouette.
 
 Ren must not be rendered as male, masculine-presenting, bearded, broad-jawed, or as a masculine anime character.

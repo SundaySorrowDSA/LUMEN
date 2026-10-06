@@ -1,0 +1,120 @@
+Add the attached Ren wardrobe reference sheet to LUMEN and convert its useful contents into a structured wardrobe manifest.
+
+Save the attached image unchanged as:
+
+artifacts/api-server/assets/characters/ren/ren-wardrobe-reference-v1.png
+
+Register it as:
+
+* character: Ren
+* role: wardrobe_reference
+* status: approved
+* faceAuthority: none
+* wardrobePriority: high
+* accessoryPriority: high
+* purpose: paper_doll_guidance
+
+Important hierarchy:
+
+* ren-face-v1.png remains the sole authoritative facial identity reference.
+* ren-visual-reference-v1.png remains the broader secondary visual/style reference.
+* ren-wardrobe-reference-v1.png defines wardrobe families, clothing pieces, accessories, and context of use.
+
+Then create a structured TypeScript wardrobe manifest under an appropriate config path, for example:
+
+artifacts/api-server/src/config/ren-wardrobe.ts
+
+The manifest should encode the wardrobe shown in the attached reference sheet as machine-readable data rather than relying on LUMEN to re-read the entire image every time.
+
+Create these initial outfit groups:
+
+at_home
+
+* sheer black celestial robe
+* black lingerie/base layer
+* subtle black feather hair adornments
+* restrained layered gold jewelry
+* context: home, relaxing, video calls
+
+daytime_out
+
+* black fitted tank/top
+* black hoodie or jacket with subtle gold accents
+* black cargo pants with straps/rings
+* black combat/platform boots
+* black crossbody bag with gold sun emblem
+* subtle black feather hair adornments
+* context: errands, daytime, out of house
+
+casual_home
+
+* black tube top or fitted tee
+* black lounge pants or shorts
+* optional hoodie
+* minimal jewelry
+* subtle black feather hair adornments
+* context: casual home use, lounging
+
+kitchen_helping
+
+* small black-and-gold apron
+* worn over an otherwise practical existing outfit
+* minimal jewelry
+* hair optionally tied or partially up
+* subtle feather detail retained
+* context: cooking, helping in kitchen
+
+Also define reusable canonical pieces for:
+
+* subtle black feather hair adornments
+* restrained gold/black jewelry
+* black combat/platform boots
+* black crossbody bag with gold sun emblem
+* black hoodie/jacket
+* black cargo pants
+* black fitted tee/tank
+* black tube top
+* celestial robe
+* black-and-gold apron
+
+Each outfit entry should include:
+
+* stable ID
+* human-readable label
+* context tags
+* required pieces
+* optional pieces
+* exclusions
+* notes
+
+Add exclusions to prevent outfit over-combination, including:
+
+* do not combine all wardrobe families at once
+* do not add excessive fantasy ornamentation
+* do not add oversized feather crowns/headdresses
+* do not turn casual or kitchen scenes into lingerie/burlesque styling unless explicitly requested
+* do not let the wardrobe manifest override Ren’s canonical face reference
+
+Do NOT yet change production image-generation behavior.
+
+Do NOT automatically pass the entire wardrobe sheet to every image-generation request.
+
+Do NOT modify:
+
+* ren-face-v1.png
+* existing provider routing
+* Kindroid behavior
+* chat persistence
+* current Ren identity wiring
+
+Do not perform live generations.
+
+Verify the attached image was stored unchanged and report:
+
+1. final asset path
+2. exact files created/modified
+3. the complete structured wardrobe manifest
+4. SHA-256 of ren-wardrobe-reference-v1.png
+5. confirmation that ren-face-v1.png remains untouched and authoritative
+6. confirmation that no runtime generation behavior changed
+7. confirmation that the wardrobe sheet is now reference documentation while the manifest is the machine-readable wardrobe source of truth
