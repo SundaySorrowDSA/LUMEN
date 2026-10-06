@@ -23,7 +23,7 @@ test('preview diagnostics preserve non-Error reasons and source details without 
   };
   emit('message', { data: { type: 'SCREENSHOT_PAGE', privatePayload: 'not logged' }, origin: 'https://replit.com' });
   emit('unhandledrejection', { reason: { name: 'DOMException', message: 'Share failed', stack: 'original-stack', code: 20 } });
-  emit('error', { error: undefined, filename: 'https://example.test/injected.js?token=secret', lineno: 9, colno: 4 });
+  emit('error', { error: null, message: 'Script error.', filename: 'https://example.test/injected.js?token=secret', lineno: 9, colno: 4 });
   emit('unhandledrejection', { reason: 'Bearer secret sk-example123' });
   const state = window.__lumenPreviewDiagnostics as { queue: Array<Record<string, any>> };
   assert.equal(state.queue[0].fields.message, 'Share failed');
@@ -31,7 +31,8 @@ test('preview diagnostics preserve non-Error reasons and source details without 
   assert.equal(state.queue[0].fields.code, '20');
   assert.equal(state.queue[0].recentPreviewMessages[0].type, 'SCREENSHOT_PAGE');
   assert.ok(!JSON.stringify(state.queue).includes('privatePayload'));
-  assert.equal(state.queue[1].reasonType, 'undefined');
+  assert.equal(state.queue[1].primitiveReason, 'null');
+  assert.equal(state.queue[1].eventMessage, 'Script error.');
   assert.equal(state.queue[1].filename, 'https://example.test/injected.js');
   assert.equal(state.queue[1].line, 9);
   assert.equal(state.queue[2].primitiveReason, 'Bearer [REDACTED] [REDACTED]');

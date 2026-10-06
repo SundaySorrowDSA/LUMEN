@@ -34,6 +34,8 @@ export const diagnosticScript = String.raw`(() => {
     try { constructor = reason?.constructor?.name || ''; } catch {}
     const data = {
       timestamp: Date.now(), event: event.type, reasonType: typeof reason,
+      eventConstructor: clean(event.constructor?.name || ''),
+      eventMessage: typeof event.message === 'string' ? clean(event.message) : null,
       reasonConstructor: clean(constructor),
       primitiveReason: reason === null ? 'null' : ['undefined', 'string', 'number', 'boolean'].includes(typeof reason) ? clean(reason) : null,
       fields, filename: source(event.filename || ''), line: event.lineno || null, column: event.colno || null,
