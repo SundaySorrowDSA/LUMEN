@@ -42,3 +42,9 @@ In active Ren conversations, assistant-directed image requests using “you,” 
 **Why:** The user’s implicit Ren selfie request produced an unrelated person and the user explicitly required conversational roles to remain correct.
 
 **How to apply:** Resolve the depicted conversational subject before character detection, then reuse the existing canonical identity/reference/wardrobe assembly. Do not add Ren to every image request or duplicate identity construction in routing.
+
+The at-home celestial robe intentionally retains its sheer visual design. For its ordinary base-layer presentation, full coverage belongs to the opaque underlying garment, not a replacement wardrobe family or a globally opaque robe.
+
+**Why:** The user explicitly required preservation of the robe's intended design while clarifying torso and hip coverage beneath it.
+
+**How to apply:** Keep future coverage adjustments specific to the selected base-layer rendering; do not globally remove sheer fabrics, silently substitute wardrobe families, or weaken Ren's canonical identity.

@@ -140,3 +140,17 @@ mtime_ms = 1791259693971
 storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/d7225f21-e658-4a41-bd1d-cd52793426ca/5acd8d89-6288-465f-b79e-464719d2f104"
 storage_version_token = "1791259830136450"
 content_type = "text/plain"
+
+[[outputs]]
+id = "fMwS1fQKa43IdK2RqII8v"
+uri = "file://.local/verification/ren-base-layer-live-provider-prompt.txt"
+type = "text"
+title = "Final provider prompt — successful development selfie"
+description = "Complete 3,503-character prompt saved with the successful live image. Only the at_home base-layer coverage text and its rendering safeguard changed. Credentials and reference-image bytes are not included."
+logical_id = "0caf5df2-6082-4b1e-b547-530e72ee83ff"
+content_hash = "sha256:fd57325aaa401cf6e66d1dd765872b52713708cc6b2ae2f3397c2e567b8c58c3"
+size = 3505
+mtime_ms = 1791260412471
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/0caf5df2-6082-4b1e-b547-530e72ee83ff/39f0c900-fa54-4f1a-b02e-ec7b51664579"
+storage_version_token = "1791260497778431"
+content_type = "text/plain"

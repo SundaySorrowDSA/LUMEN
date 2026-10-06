@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { Writable } from "node:stream";
 import test from "node:test";
 import pino from "pino";
 import { extractImagePrompt } from "./image-generation.js";
 import { resolveConversationImageRequest } from "./conversation-image-request.js";
-import { generateConversationImage, REN_CHARACTER_IDENTITY } from "./ren-image-prompt.js";
+import { buildRenImagePrompt, generateConversationImage, REN_CHARACTER_IDENTITY, REN_REFERENCE_IDENTITY_INSTRUCTION } from "./ren-image-prompt.js";
 import { loadRenVisualReference } from "../lib/ren-visual-reference.js";
 import { selectRenWardrobe, wardrobePrompt } from "./ren-wardrobe-selector.js";
 
@@ -91,6 +92,31 @@ test("asking what Ren is wearing reuses her existing approved outfit without a c
     assert.deepEqual(next, current);
     assert.deepEqual(wardrobePrompt(next), wardrobePrompt(current));
   }
+});
+
+test("original selfie request keeps subject, identity, reference instructions, and at_home selection unchanged with covered base_layer", () => {
+  // Pin the approved identity/reference text independently of the renderer.
+  assert.equal(createHash("sha256").update(REN_CHARACTER_IDENTITY).digest("hex"),
+    "bd413c37ea9d6d9769c9695b20ac1c667a70e9e6c713b5cc11ad019d7b234955");
+  assert.equal(createHash("sha256").update(REN_REFERENCE_IDENTITY_INSTRUCTION).digest("hex"),
+    "9fe1946913b80f84944f789eacf1a94bc2a7a338edac38991b7b8792a7ba18e9");
+  const now = new Date("2026-10-06T04:30:00Z");
+  const current = selectRenWardrobe({ prompt: "Ren at home in the evening.", now }, null);
+  const resolved = resolveConversationImageRequest(original, { assistantCharacter: "Ren" });
+  assert.deepEqual(resolved, {
+    prompt: "selfie of Ren showing the viewer her current outfit right now.",
+    resolvedAssistantSubject: true, reason: "current_outfit",
+  });
+  const next = selectRenWardrobe({ prompt: resolved!.prompt, now }, current);
+  assert.deepEqual(next, current);
+  const built = buildRenImagePrompt(resolved!.prompt, wardrobePrompt(next));
+  assert.ok(built.activated);
+  assert.equal(built.sections.characterIdentity, REN_CHARACTER_IDENTITY);
+  assert.ok(built.prompt.includes(REN_REFERENCE_IDENTITY_INSTRUCTION));
+  assert.match(built.sections.wardrobe, /opaque black garment providing full torso and hip coverage/);
+  assert.match(built.sections.wardrobe, /Sheer black at-home robe/);
+  assert.doesNotMatch(built.prompt, /lingerie|burlesque/i);
+  assert.equal(built.sections.userRequestDetails, resolved!.prompt);
 });
 
 test("resolved requests reach the existing Ren assembler, reference, and provider; others remain generic", async () => {

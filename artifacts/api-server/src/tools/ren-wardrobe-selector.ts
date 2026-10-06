@@ -281,10 +281,14 @@ export function validateRenWardrobeState(value: unknown): asserts value is Persi
 
 export function wardrobePrompt(state: PersistedRenWardrobe): { outfit: string } {
   validateRenWardrobeState(state);
+  const coveredHomeBaseLayer = state.outfitId === "at_home" &&
+    state.selectedRequiredPieces.some(piece => piece.pieceId === "black_base_layer" && piece.variant === "base_layer");
   const describe = (piece: SelectedPiece) => {
     const definition = manifest.pieces[piece.pieceId];
     // Resolve the manifest's "or" wording; never ask the provider to choose variants again.
-    const description = definition.description
+    const description = coveredHomeBaseLayer && piece.pieceId === "black_base_layer"
+      ? "An opaque black garment providing full torso and hip coverage beneath the celestial robe. The celestial robe remains worn over it. Presentation is relaxed and neutral."
+      : definition.description
       .replace("T-shirt or tank top", piece.variant === "fitted_tank" ? "tank top" : "T-shirt")
       .replace("hoodie or jacket", piece.variant === "jacket" ? "jacket" : "hoodie")
       .replace("combat or platform boots", piece.variant === "platform" ? "platform boots" : "combat boots")
@@ -298,7 +302,9 @@ export function wardrobePrompt(state: PersistedRenWardrobe): { outfit: string } 
     ...pieces.map(describe),
     ...(state.basePieces.length ? ["Practical existing clothing under the apron:", ...state.basePieces.map(describe)] : []),
     ...state.omittedPieces.map((id) => `Do not include ${manifest.pieces[id].label.toLowerCase()} in this outfit.`),
-    ...manifest.exclusions.map(({ rule }) => rule),
+    ...manifest.exclusions.map(({ id, rule }) => coveredHomeBaseLayer && id === "no_casual_kitchen_lingerie"
+      ? "Keep the selected garments fully covering, with relaxed, neutral everyday styling."
+      : rule),
     "Only the selected pieces above are worn; optional pieces not selected are not added.",
   ].join(" ") };
 }

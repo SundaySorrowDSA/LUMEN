@@ -261,6 +261,37 @@ test("rendered outfit describes only the chosen clothing variants, not a fresh c
   assert.ok(!outside.includes("combat or platform"));
 });
 
+test("at_home base_layer rendering makes coverage explicit while preserving the sheer robe and structured selection", () => {
+  const state = choose("Ren at home in the evening.");
+  const before = structuredClone(state);
+  const outfit = wardrobePrompt(state).outfit;
+  assert.equal(state.outfitId, "at_home");
+  assert.ok(state.selectedRequiredPieces.some(piece => piece.pieceId === "black_base_layer" && piece.variant === "base_layer"));
+  assert.match(outfit, /opaque black garment providing full torso and hip coverage/);
+  assert.match(outfit, /The celestial robe remains worn over it/);
+  assert.match(outfit, /Presentation is relaxed and neutral/);
+  assert.ok(outfit.includes(manifest.pieces.celestial_robe.description));
+  assert.match(outfit, /Keep the selected garments fully covering/);
+  assert.doesNotMatch(outfit, /lingerie|burlesque/i);
+  assert.deepEqual(state, before, "Rendering must not change pieces, family, or selection metadata");
+  for (const [id, family] of Object.entries(manifest.outfits)) {
+    if (id !== "at_home") assert.ok(!outfit.includes(`Selected approved outfit: ${family.label}.`));
+  }
+});
+
+test("coverage clarification is confined to at_home base_layer; other variants and families keep their rendering rules", () => {
+  for (const request of ["Ren outside.", "Ren cooking.", "Ren lounging casually.", "Ren wearing lingerie at home."]) {
+    const state = choose(request);
+    const outfit = wardrobePrompt(state).outfit;
+    assert.doesNotMatch(outfit, /opaque black garment providing full torso and hip coverage/);
+    for (const exclusion of manifest.exclusions) assert.ok(outfit.includes(exclusion.rule));
+    if (state.outfitId === "at_home") {
+      assert.ok(state.selectedRequiredPieces.some(piece => piece.pieceId === "black_base_layer" && piece.variant === "lingerie"));
+      assert.ok(outfit.includes(manifest.pieces.celestial_robe.description));
+    }
+  }
+});
+
 test("old Ren clothing choices cannot undo a newer user selection", () => {
   const current = choose("Ren wearing a celestial robe.");
   const state = selectRenWardrobe({
