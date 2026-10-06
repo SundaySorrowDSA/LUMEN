@@ -673,9 +673,9 @@ export async function resolveOptionalWebSearch(
   } catch (error) {
     return {
       webSearch: null,
-      providerContent: error instanceof InsufficientNewsEvidenceError
-        ? buildWebSearchInsufficientContext(message)
-        : buildWebSearchUnavailableContext(message),
+      // The failure and its fallback diagnostics belong to LUMEN, not KN.
+      // Only successful factual search context may augment a provider message.
+      providerContent: message,
       error: error instanceof Error ? error : new Error(String(error)),
     };
   }

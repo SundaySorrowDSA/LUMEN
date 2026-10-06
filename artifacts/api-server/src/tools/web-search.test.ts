@@ -398,7 +398,7 @@ test("broad U.S. news keeps insufficient-evidence behavior when BBC has no valid
   assert.equal(bbcCalls, 1);
   assert.equal(outcome.webSearch, null);
   assert.ok(outcome.error instanceof InsufficientNewsEvidenceError);
-  assert.match(outcome.providerContent, /live web search found insufficient evidence/);
+  assert.equal(outcome.providerContent, diagnosedPrompt, "Insufficient-evidence diagnostics stay local");
 });
 
 test("an unavailable BBC feed also retains the insufficient-evidence fallback", async () => {
@@ -455,8 +455,7 @@ test("only indexes and undated stories produce honest insufficient-evidence cont
   );
   assert.equal(outcome.webSearch, null);
   assert.ok(outcome.error instanceof InsufficientNewsEvidenceError);
-  assert.match(outcome.providerContent, /live web search found insufficient evidence/);
-  assert.match(outcome.providerContent, /Do not present those pages as current-event evidence/);
+  assert.equal(outcome.providerContent, diagnosedPrompt, "Fallback diagnostics must stay in LUMEN");
 });
 
 test("optional web-search failure falls through with provider content", async () => {
@@ -467,15 +466,15 @@ test("optional web-search failure falls through with provider content", async ()
 
   assert.equal(outcome.webSearch, null);
   assert.equal(outcome.error?.message, "search unavailable");
-  assert.match(outcome.providerContent, /\[User request\][\s\S]*current events in America/);
+  assert.equal(outcome.providerContent, diagnosedPrompt);
 });
 
-test("fallback context says current information could not be retrieved or verified", async () => {
+test("fallback diagnostics are never appended to the outgoing provider message", async () => {
   const outcome = await resolveOptionalWebSearch(
     diagnosedPrompt,
     async () => { throw new Error("search unavailable"); },
   );
 
-  assert.match(outcome.providerContent, /Current information could not be retrieved or verified/);
-  assert.match(outcome.providerContent, /Do not present stored knowledge or assumptions as current/);
+  assert.equal(outcome.providerContent, diagnosedPrompt);
+  assert.equal(outcome.error?.message, "search unavailable");
 });

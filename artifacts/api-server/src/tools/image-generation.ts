@@ -14,7 +14,11 @@ export function extractImagePrompt(content: string): string | null {
 /** Sentence boundaries and polite questions, not arbitrary image mentions. */
 export function imageRequestClauses(content: string): string[] {
   return [content, ...content.split(/[.!?\n]+\s*/)]
-    .map(clause => clause.trim().replace(/^(?:can|could|would|will)\s+you\s+(?:please\s+)?/i, ""))
+    .map(clause => clause.trim()
+      .replace(/^(?:ok(?:ay)?|yes|sure)[,\s]+(?:(?:baby|babe|love|Ren)[,\s]+)?/i, "")
+      .replace(/^(?:can|could|would|will)\s+you\s+(?:please\s+)?/i, "")
+      .replace(/^are\s+you\s+(?:ready|able|willing)\s+to\s+/i, "")
+      .replace(/^I(?:['’]d|\s+would)\s+(?:love|like)\s+to\s+see\s+/i, "show me "))
     .filter(Boolean);
 }
 

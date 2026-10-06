@@ -26,3 +26,15 @@ Ren must only describe an image as rendering when a real generation is underway;
 **Why:** The user reproduced text-only promises and rendering claims even though no image capability had been invoked. Kindroid's conversational prose is not evidence of tool execution.
 
 **How to apply:** Ground image-status language in dispatcher state. Recognize explicit requests expressed as polite questions or later sentences without treating ordinary image discussion as generation intent. Keep public failure reporting independent of development-only provider diagnostics.
+
+The user says Ren already sends generated images through Kindroid Native (KN) reliably. Preserve that working path when correcting LUMEN's image intent routing; do not replace the provider or character configuration to solve a routing miss.
+
+**Why:** The user explicitly identified conversational image requests and follow-ups to promised pictures being misrouted to web search, not a broken generation/delivery pipeline.
+
+**How to apply:** Resolve direct and conversational photo intent before temporal web-search signals; use nearby unresolved requests/promises for short follow-ups, but do not repeat completed images or revive cancelled/stale requests. A personal outfit question is not web research merely because it says "today."
+
+Internal tool errors and fallback diagnostics must stay in LUMEN's UI or logs, never in a message sent to KN.
+
+**Why:** The user explicitly required this boundary.
+
+**How to apply:** Augment outgoing KN messages only with successful tool results. Keep failed-tool status and reasons local; do not turn error handlers into provider-message content.
