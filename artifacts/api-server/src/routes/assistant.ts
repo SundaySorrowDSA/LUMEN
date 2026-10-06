@@ -61,8 +61,9 @@ import {
   extractExplicitOpenAIQuestion,
 } from "../tools/openai-consultation-policy.js";
 import { InvalidPhotoError, preparePhotoContext } from "../tools/photo-analysis.js";
-import { extractImagePrompt, generatedImageFromMetadata } from "../tools/image-generation.js";
+import { generatedImageFromMetadata } from "../tools/image-generation.js";
 import { generateConversationImage } from "../tools/ren-image-prompt.js";
+import { resolveConversationImageRequest } from "../tools/conversation-image-request.js";
 import { getOrSelectCurrentRenWardrobe } from "../tools/ren-wardrobe-state.js";
 import { isRenClothingChoice } from "../tools/ren-wardrobe-selector.js";
 import { deleteGeneratedImage, readGeneratedImage } from "../lib/generated-image-storage.js";
@@ -523,7 +524,12 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     return;
   }
 
-  const imagePrompt = body.toolCall?.prompt ?? extractImagePrompt(body.content);
+  // LUMEN's conversation-image capability uses Ren as its responder (the
+  // Kindroid acknowledgement below), independent of the image's subject.
+  const imageRequest = resolveConversationImageRequest(body.content, {
+    assistantCharacter: "Ren", toolPrompt: body.toolCall?.prompt,
+  });
+  const imagePrompt = imageRequest?.prompt ?? null;
   if (imagePrompt !== null) {
     if (body.photoDataUrl) {
       res.status(400).json({ error: "Send image generation and photo analysis as separate requests." });
@@ -536,6 +542,11 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     let storedPath: string | undefined;
     try {
       traceLog.info({ stage: "capability_dispatch", tool: "generate_image", conversationId: params.id, requestedBy: body.toolCall ? "tool_call" : "user_image_request" }, "Ren/LUMEN capability dispatcher");
+      if (imageRequest?.resolvedAssistantSubject) traceLog.info({
+        stage: "image_subject_resolved", tool: "generate_image",
+        subject: "Ren", reason: imageRequest.reason,
+        resolvedPromptLength: imagePrompt.length,
+      }, "Conversational image subject resolved before character detection");
       const image = await generateConversationImage(imagePrompt, {
         apiKey: openAiApiKey, logger: traceLog,
         readWardrobe: () => getOrSelectCurrentRenWardrobe({

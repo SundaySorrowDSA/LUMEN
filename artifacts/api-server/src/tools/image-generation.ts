@@ -6,11 +6,20 @@ import { saveGeneratedImage } from "../lib/generated-image-storage.js";
 export function extractImagePrompt(content: string): string | null {
   const command = content.match(/^\s*(?:\/image\s+|generate_image\s*:\s*)([\s\S]+)$/i);
   if (command) return command[1].trim() || null;
-  const natural = content.match(/^\s*(?:please\s+)?(?:generate|create|make|draw)\s+(?:(?:me|us)\s+)?(?:an?\s+)?(image|picture|illustration|selfie|portrait)\s+(?:of|showing|depicting)\s+([\s\S]+)$/i);
+  const natural = content.match(/^\s*(?:please\s+)?(?:generate|create|make|draw|send|take|show)\s+(?:(?:me|us)\s+)?(?:an?\s+)?(image|picture|illustration|selfie|portrait|photo)\s+(of|showing|depicting)\s+([\s\S]+)$/i);
   if (natural) {
-    const subject = natural[2].trim();
-    return /^(?:selfie|portrait)$/i.test(natural[1]) ? `${natural[1]} of ${subject}` : subject || null;
+    const subject = natural[3].trim();
+    // "Showing me" may identify the viewer, not the depicted subject. Keep
+    // the original relation instead of inventing "of me".
+    return /^(?:selfie|portrait)$/i.test(natural[1]) || natural[2].toLowerCase() === "showing"
+      ? `${natural[1]} ${natural[2]} ${subject}` : subject || null;
   }
+  const bareSelfie = content.match(/^\s*(?:please\s+)?(?:generate|create|make|send|take)\s+(?:(?:me|us)\s+)?(?:an?\s+)?selfie[.!]?\s*$/i);
+  if (bareSelfie) return "selfie";
+  // Bounded object shorthand requested by the chat UI; do not reinterpret
+  // arbitrary "generate a plan/report/schedule" requests as image calls.
+  const object = content.match(/^\s*(?:please\s+)?(?:generate|create|make|draw|show\s+(?:me|us))\s+((?:an?\s+)?(?:castle|crow)\b[\s\S]*)$/i);
+  if (object) return object[1].trim();
   const renPortrait = content.match(/^\s*(?:please\s+)?(?:generate|create|make|draw)\s+(?:(?:me|us)\s+)?(?:an?\s+)?Ren\s+(selfie|portrait|image|picture)(?:\s+([\s\S]+))?[.!]?\s*$/i);
   return renPortrait ? `${renPortrait[1]} of Ren${renPortrait[2] ? ` ${renPortrait[2].trim()}` : ''}` : null;
 }

@@ -126,3 +126,17 @@ mtime_ms = 1791248938205
 storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/49bf0f94-b669-4a1f-bc64-ee0581f78288/8e1968e0-e05f-4131-8721-5a5766f779b6"
 storage_version_token = "1791248988559939"
 content_type = "text/plain"
+
+[[outputs]]
+id = "7qNBq8XG76_RBEHvdCPck"
+uri = "file://.local/verification/ren-selfie-provider-prompt.txt"
+type = "text"
+title = "Verified Ren selfie provider prompt"
+description = "Full 3,393-character assembled prompt for the original request, captured before a mocked provider call using current development context and the unchanged Ren pipeline. No live generation or persistence."
+logical_id = "d7225f21-e658-4a41-bd1d-cd52793426ca"
+content_hash = "sha256:18a0b6973f9bd6d6484cfb37740eb52a53c3a87fa589d6031d7da8fae0feb90b"
+size = 3395
+mtime_ms = 1791259693971
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:f105e379-8119-4687-a5f9-e3cf2d8ad1fb/d7225f21-e658-4a41-bd1d-cd52793426ca/5acd8d89-6288-465f-b79e-464719d2f104"
+storage_version_token = "1791259830136450"
+content_type = "text/plain"

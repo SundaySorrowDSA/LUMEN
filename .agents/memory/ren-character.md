@@ -36,3 +36,9 @@ Ren must not be rendered as male, masculine-presenting, bearded, broad-jawed, or
 **Why:** The user supplied these traits as Ren's canonical baseline and reported masculine/androgynous visual drift from the earlier baseline, then explicitly approved a face image as the visual source of truth. These are user-defined requirements, not traits inferred from Kindroid responses or generated images.
 
 **How to apply:** Preserve the approved face when depicting Ren, with the textual traits as supporting guidance. Treat current wardrobe, environment, framing, mood, and request details as separate components; wardrobe may change without redefining Ren. Do not apply the character baseline to non-Ren images or change the diagnostic Image Sandbox.
+
+In active Ren conversations, assistant-directed image requests using “you,” “yourself,” or an unqualified “send me a selfie” depict Ren even without her literal name. First-person user references remain the user; “showing me what you’re wearing” makes the user the viewer, not the pictured subject. Explicit user portraits and unrelated subjects remain non-Ren.
+
+**Why:** The user’s implicit Ren selfie request produced an unrelated person and the user explicitly required conversational roles to remain correct.
+
+**How to apply:** Resolve the depicted conversational subject before character detection, then reuse the existing canonical identity/reference/wardrobe assembly. Do not add Ren to every image request or duplicate identity construction in routing.
