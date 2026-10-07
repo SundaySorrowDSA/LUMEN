@@ -1,5 +1,5 @@
 import { createInsertSchema } from "drizzle-zod";
-import { integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { z } from "zod/v4";
 
 export const assistantConversationsTable = pgTable("assistant_conversations", {
@@ -31,6 +31,13 @@ export const assistantMemoryTable = pgTable("assistant_memory", {
 export const assistantProviderSettingsTable = pgTable("assistant_provider_settings", {
   id: serial("id").primaryKey(),
   activeProviderId: text("active_provider_id").notNull().default("kindroid"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export const assistantPrivacySettingsTable = pgTable("assistant_privacy_settings", {
+  id: integer("id").primaryKey(),
+  darkMode: boolean("dark_mode").notNull().default(false),
+  activatedAt: timestamp("activated_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 

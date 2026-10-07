@@ -18,7 +18,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
 import {
-  Activity, Archive, ArrowDown, ArrowUp, Bell, Brain, Camera, Check, ChevronRight, CircleHelp, Cloud,
+  Activity, Archive, ArrowDown, ArrowUp, Bell, Brain, Camera, Check, ChevronRight, CircleHelp, Cloud, Hand, Smile,
   Ellipsis, FileText, FolderOpen, Globe2, Link2, Loader2,
   MessageSquare, Plus, Settings2, ShieldCheck, Sparkles,
   Trash2, Waypoints, Wifi, X, Zap,
@@ -64,6 +64,7 @@ import { ConversationGeneratedImage } from '@/components/conversation-generated-
 import { ACTIVE_CONVERSATION_KEY, readActiveConversation, resolveConversationSelection } from '@/lib/conversation-selection';
 import { readConversationImageFailure, readTestImageError } from '@/lib/test-image-errors';
 import { useChatScroll } from '@/hooks/use-chat-scroll';
+import { privacyModeCommand } from '@/lib/privacy-mode-command';
 import {
   readPhotoDiagnostics, updatePhotoDiagnostic,
   type PhotoDiagnostic, type PhotoSource,
@@ -149,6 +150,87 @@ function reportPushDiagnostic(stage: PushDiagnosticStage, error: unknown) {
     keepalive: true,
   }).catch(() => undefined);
   return detail;
+}
+
+type PrivacyModeState = { darkMode: boolean; activatedAt: string | null; changed?: boolean; released?: number; releasePending?: boolean };
+
+async function writePrivacyMode(darkMode: boolean): Promise<PrivacyModeState> {
+  const response = await fetch('/api/push/privacy', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ darkMode }),
+  });
+  if (!response.ok) throw new Error('Could not update Dark Mode.');
+  const state = await response.json() as PrivacyModeState;
+  window.dispatchEvent(new CustomEvent('lumen:privacy-mode', { detail: state }));
+  if (darkMode && 'serviceWorker' in navigator) {
+    void navigator.serviceWorker.getRegistration().then((registration) =>
+      registration?.getNotifications().then((notifications) => {
+        notifications.filter((notification) => notification.tag.startsWith('lumen-reminder-')).forEach((notification) => notification.close());
+      }),
+    ).catch(() => undefined);
+  }
+  return state;
+}
+
+function PrivacyModeControl() {
+  const [darkMode, setDarkMode] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const refresh = useCallback(async () => {
+    try {
+      const response = await fetch('/api/push/privacy', { cache: 'no-store' });
+      if (!response.ok) throw new Error('Privacy state unavailable');
+      const state = await response.json() as PrivacyModeState;
+      setDarkMode(state.darkMode);
+    } catch {
+      setDarkMode(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const receive = (event: Event) => setDarkMode((event as CustomEvent<PrivacyModeState>).detail.darkMode);
+    const onFocus = () => void refresh();
+    window.addEventListener('lumen:privacy-mode', receive);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('lumen:privacy-mode', receive);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [refresh]);
+
+  const toggle = async () => {
+    if (darkMode === null || busy) return;
+    setBusy(true);
+    try {
+      const state = await writePrivacyMode(!darkMode);
+      setDarkMode(state.darkMode);
+      if (state.changed) toast({ title: state.darkMode ? 'Dark Mode on' : 'All Clear', description: state.darkMode ? 'Lumen will stay quiet while continuing to process in the background.' : undefined });
+    } catch {
+      toast({ title: 'Could not change privacy mode', description: 'Check your connection and try again.', variant: 'destructive' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const active = darkMode === true;
+  return <button
+    type="button"
+    role="switch"
+    aria-checked={darkMode === true}
+    aria-label={darkMode === null ? 'Privacy mode status unavailable' : active ? 'Dark Mode active. Activate All Clear.' : 'All Clear active. Activate Dark Mode.'}
+    title={darkMode === null ? 'Privacy mode unavailable' : active ? 'Dark Mode' : 'All Clear'}
+    onClick={() => void toggle()}
+    disabled={darkMode === null || busy}
+    className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-medium shadow-lg transition-colors disabled:opacity-50 ${active ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border bg-card text-foreground'}`}
+    data-testid="button-privacy-mode"
+  >
+    {active ? <Hand size={17} aria-hidden="true" /> : <Smile size={17} aria-hidden="true" />}
+    <span className="min-w-[4.5rem] text-left">{darkMode === null ? 'Loading…' : active ? 'Dark Mode' : 'All Clear'}</span>
+    <span aria-hidden="true" className={`relative h-5 w-9 rounded-full transition-colors ${active ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
+      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform ${active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+    </span>
+  </button>;
 }
 
 function NotificationControl({ compact = false }: { compact?: boolean }) {
@@ -432,7 +514,7 @@ function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <div className="md:pl-[250px]">{children}</div>
-      <div className="fixed right-4 top-4 z-30 md:hidden"><NotificationControl compact /></div>
+      <div className="fixed right-4 top-4 z-30 flex items-center gap-2 md:right-6 md:top-6"><PrivacyModeControl /><NotificationControl compact /></div>
       <div className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-30 min-h-[var(--mobile-nav-height)] border-t border-border bg-background/95 px-3 pb-[env(safe-area-inset-bottom)] pt-2 backdrop-blur md:hidden">
         <nav className="mx-auto flex max-w-md justify-around">
           {nav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} data-testid={`link-mobile-${label.toLowerCase()}`} className={`flex flex-col items-center gap-1 px-5 py-1 text-[10px] ${location === href ? 'text-primary' : 'text-muted-foreground'}`}><Icon size={18} /><span>{label}</span></Link>)}
@@ -675,7 +757,28 @@ function Workspace() {
     setPhotoProcessing(false);
   };
   const submitMessage = () => {
-    if (!selected || (!composer.trim() && !photo) || isThinking ||
+    if (isThinking) return;
+    const privacyCommand = photo ? null : privacyModeCommand(composer);
+    if (privacyCommand !== null) {
+      setComposer('');
+      void writePrivacyMode(privacyCommand).then((state) => {
+        if (!state.changed) return;
+        toast({
+          title: state.darkMode ? 'Dark Mode on' : 'All Clear',
+          description: state.darkMode
+            ? 'Lumen will stay quiet while continuing to process in the background.'
+            : state.releasePending
+              ? 'Notifications are resumed. Recent reminders will be retried automatically.'
+              : state.released
+                ? `${state.released} recent reminder${state.released === 1 ? '' : 's'} released.`
+                : undefined,
+        });
+      }).catch(() => {
+        toast({ title: 'Could not change privacy mode', description: 'Check your connection and try again.', variant: 'destructive' });
+      });
+      return;
+    }
+    if (!selected || (!composer.trim() && !photo) ||
         !photoReadyForSend(photo, photoReadyRef.current, photoProcessing || photoProcessingRef.current)) return;
     const content = composer.trim();
     const photoDataUrl = photo;

@@ -6,11 +6,26 @@ self.addEventListener('push', (event) => {
     data = {};
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Lumen reminder', {
-      body: data.body || 'You have a reminder.',
-      tag: data.reminderId ? `lumen-reminder-${data.reminderId}` : 'lumen-reminder',
-      data: { url: self.registration.scope },
-    }),
+    (async () => {
+      // Push services can queue a notification while the phone is offline. Check
+      // the current server state at delivery time so a queued alert stays hushed.
+      const response = await fetch(new URL('/api/push/privacy', self.location.origin), {
+        cache: 'no-store',
+        credentials: 'same-origin',
+      });
+      if (!response.ok) return;
+      const privacy = await response.json();
+      if (privacy.darkMode) return;
+
+      const dueAt = Date.parse(data.dueAt);
+      if (!Number.isFinite(dueAt) || Date.now() - dueAt > 3 * 60 * 1000) return;
+
+      await self.registration.showNotification(data.title || 'Lumen reminder', {
+        body: data.body || 'You have a reminder.',
+        tag: data.reminderId ? `lumen-reminder-${data.reminderId}` : 'lumen-reminder',
+        data: { url: self.registration.scope },
+      });
+    })(),
   );
 });
 

@@ -1,15 +1,47 @@
 import { Router, type IRouter } from "express";
 import { logger } from "../lib/logger.js";
 import {
+  deliverDueReminderNotifications,
   getPushConfiguration,
   removePushSubscription,
   savePushSubscription,
 } from "../tools/push-notifications.js";
+import { getPrivacyMode, setPrivacyMode } from "../tools/privacy-mode.js";
 
 const router: IRouter = Router();
 
 router.get("/push/config", (_req, res) => {
   res.json(getPushConfiguration());
+});
+
+router.get("/push/privacy", async (_req, res) => {
+  const settings = await getPrivacyMode();
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ darkMode: settings.darkMode, activatedAt: settings.activatedAt });
+});
+
+router.put("/push/privacy", async (req, res) => {
+  const darkMode = req.body?.darkMode;
+  if (typeof darkMode !== "boolean") {
+    res.status(400).json({ error: "darkMode must be a boolean" });
+    return;
+  }
+
+  const { settings, changed } = await setPrivacyMode(darkMode);
+  let released = 0;
+  let releasePending = false;
+  if (changed && !darkMode) {
+    try {
+      const result = await deliverDueReminderNotifications();
+      released = result.delivered;
+    } catch {
+      // The scheduled reminder job will retry fresh reminders after All Clear.
+      releasePending = true;
+    }
+  }
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ darkMode: settings.darkMode, activatedAt: settings.activatedAt, changed, released, releasePending });
 });
 
 const diagnosticStages = new Set([

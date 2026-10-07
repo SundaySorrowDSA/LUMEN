@@ -1,10 +1,12 @@
 import webpush from "web-push";
-import { and, eq, isNull, lte } from "drizzle-orm";
+import { and, eq, isNull, lt, lte } from "drizzle-orm";
 import {
   assistantPushSubscriptionsTable,
   assistantRemindersTable,
   db,
 } from "@workspace/db";
+import { getPrivacyMode } from "./privacy-mode.js";
+import { isReminderFreshEnough, REMINDER_NOTIFICATION_GRACE_MS } from "./reminder-notification-policy.js";
 
 function configureWebPush() {
   const publicKey = process.env.VAPID_PUBLIC_KEY?.replace(/\s+/g, "");
@@ -61,6 +63,11 @@ export async function removePushSubscription(endpointValue: string) {
 
 export async function deliverDueReminderNotifications(now = new Date()) {
   if (!configureWebPush()) throw new Error("Web push is not configured");
+  const privacy = await getPrivacyMode();
+  if (privacy.darkMode) {
+    return { reminders: 0, subscriptions: 0, delivered: 0, suppressed: true };
+  }
+
   const [subscriptions, reminders] = await Promise.all([
     db.select().from(assistantPushSubscriptionsTable),
     db
@@ -73,8 +80,23 @@ export async function deliverDueReminderNotifications(now = new Date()) {
       )),
   ]);
 
+  const freshReminders = reminders.filter((reminder) => isReminderFreshEnough(reminder.dueAt, now));
+  const staleReminderIds = reminders
+    .filter((reminder) => !isReminderFreshEnough(reminder.dueAt, now))
+    .map((reminder) => reminder.id);
+  if (staleReminderIds.length > 0) {
+    await db
+      .update(assistantRemindersTable)
+      .set({ notificationSentAt: now })
+      .where(and(
+        eq(assistantRemindersTable.status, "pending"),
+        isNull(assistantRemindersTable.notificationSentAt),
+        lt(assistantRemindersTable.dueAt, new Date(now.getTime() - REMINDER_NOTIFICATION_GRACE_MS)),
+      ));
+  }
+
   let delivered = 0;
-  for (const reminder of reminders) {
+  for (const reminder of freshReminders) {
     let sentForReminder = false;
     for (const subscription of subscriptions) {
       try {
@@ -87,6 +109,7 @@ export async function deliverDueReminderNotifications(now = new Date()) {
             title: "Lumen reminder",
             body: reminder.text,
             reminderId: reminder.id,
+            dueAt: reminder.dueAt.toISOString(),
           }),
           { TTL: 3600, urgency: "high" },
         );
@@ -111,5 +134,5 @@ export async function deliverDueReminderNotifications(now = new Date()) {
         .where(eq(assistantRemindersTable.id, reminder.id));
     }
   }
-  return { reminders: reminders.length, subscriptions: subscriptions.length, delivered };
+  return { reminders: freshReminders.length, subscriptions: subscriptions.length, delivered, suppressed: false };
 }
