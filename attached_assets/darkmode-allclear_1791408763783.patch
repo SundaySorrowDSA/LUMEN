@@ -1,0 +1,725 @@
+diff --git a/artifacts/api-server/src/routes/push.ts b/artifacts/api-server/src/routes/push.ts
+index f0aa764..553e2d3 100644
+--- a/artifacts/api-server/src/routes/push.ts
++++ b/artifacts/api-server/src/routes/push.ts
+@@ -1,10 +1,12 @@
+ import { Router, type IRouter } from "express";
+ import { logger } from "../lib/logger.js";
+ import {
++  deliverDueReminderNotifications,
+   getPushConfiguration,
+   removePushSubscription,
+   savePushSubscription,
+ } from "../tools/push-notifications.js";
++import { getPrivacyMode, setPrivacyMode } from "../tools/privacy-mode.js";
+ 
+ const router: IRouter = Router();
+ 
+@@ -12,6 +14,36 @@ router.get("/push/config", (_req, res) => {
+   res.json(getPushConfiguration());
+ });
+ 
++router.get("/push/privacy", async (_req, res) => {
++  const settings = await getPrivacyMode();
++  res.setHeader("Cache-Control", "no-store");
++  res.json({ darkMode: settings.darkMode, activatedAt: settings.activatedAt });
++});
++
++router.put("/push/privacy", async (req, res) => {
++  const darkMode = req.body?.darkMode;
++  if (typeof darkMode !== "boolean") {
++    res.status(400).json({ error: "darkMode must be a boolean" });
++    return;
++  }
++
++  const { settings, changed } = await setPrivacyMode(darkMode);
++  let released = 0;
++  let releasePending = false;
++  if (changed && !darkMode) {
++    try {
++      const result = await deliverDueReminderNotifications();
++      released = result.delivered;
++    } catch {
++      // The scheduled reminder job will retry fresh reminders after All Clear.
++      releasePending = true;
++    }
++  }
++
++  res.setHeader("Cache-Control", "no-store");
++  res.json({ darkMode: settings.darkMode, activatedAt: settings.activatedAt, changed, released, releasePending });
++});
++
+ const diagnosticStages = new Set([
+   "service-worker-registration",
+   "service-worker-ready",
+@@ -72,4 +104,4 @@ router.delete("/push/subscriptions", async (req, res) => {
+   res.status(204).send();
+ });
+ 
+-export default router;
+\ No newline at end of file
++export default router;
+diff --git a/artifacts/api-server/src/tools/push-notifications.ts b/artifacts/api-server/src/tools/push-notifications.ts
+index 55c7419..6fedb26 100644
+--- a/artifacts/api-server/src/tools/push-notifications.ts
++++ b/artifacts/api-server/src/tools/push-notifications.ts
+@@ -1,10 +1,12 @@
+ import webpush from "web-push";
+-import { and, eq, isNull, lte } from "drizzle-orm";
++import { and, eq, isNull, lt, lte } from "drizzle-orm";
+ import {
+   assistantPushSubscriptionsTable,
+   assistantRemindersTable,
+   db,
+ } from "@workspace/db";
++import { getPrivacyMode } from "./privacy-mode.js";
++import { isReminderFreshEnough, REMINDER_NOTIFICATION_GRACE_MS } from "./reminder-notification-policy.js";
+ 
+ function configureWebPush() {
+   const publicKey = process.env.VAPID_PUBLIC_KEY?.replace(/\s+/g, "");
+@@ -61,6 +63,11 @@ export async function removePushSubscription(endpointValue: string) {
+ 
+ export async function deliverDueReminderNotifications(now = new Date()) {
+   if (!configureWebPush()) throw new Error("Web push is not configured");
++  const privacy = await getPrivacyMode();
++  if (privacy.darkMode) {
++    return { reminders: 0, subscriptions: 0, delivered: 0, suppressed: true };
++  }
++
+   const [subscriptions, reminders] = await Promise.all([
+     db.select().from(assistantPushSubscriptionsTable),
+     db
+@@ -73,8 +80,23 @@ export async function deliverDueReminderNotifications(now = new Date()) {
+       )),
+   ]);
+ 
++  const freshReminders = reminders.filter((reminder) => isReminderFreshEnough(reminder.dueAt, now));
++  const staleReminderIds = reminders
++    .filter((reminder) => !isReminderFreshEnough(reminder.dueAt, now))
++    .map((reminder) => reminder.id);
++  if (staleReminderIds.length > 0) {
++    await db
++      .update(assistantRemindersTable)
++      .set({ notificationSentAt: now })
++      .where(and(
++        eq(assistantRemindersTable.status, "pending"),
++        isNull(assistantRemindersTable.notificationSentAt),
++        lt(assistantRemindersTable.dueAt, new Date(now.getTime() - REMINDER_NOTIFICATION_GRACE_MS)),
++      ));
++  }
++
+   let delivered = 0;
+-  for (const reminder of reminders) {
++  for (const reminder of freshReminders) {
+     let sentForReminder = false;
+     for (const subscription of subscriptions) {
+       try {
+@@ -87,6 +109,7 @@ export async function deliverDueReminderNotifications(now = new Date()) {
+             title: "Lumen reminder",
+             body: reminder.text,
+             reminderId: reminder.id,
++            dueAt: reminder.dueAt.toISOString(),
+           }),
+           { TTL: 3600, urgency: "high" },
+         );
+@@ -111,5 +134,5 @@ export async function deliverDueReminderNotifications(now = new Date()) {
+         .where(eq(assistantRemindersTable.id, reminder.id));
+     }
+   }
+-  return { reminders: reminders.length, subscriptions: subscriptions.length, delivered };
+-}
+\ No newline at end of file
++  return { reminders: freshReminders.length, subscriptions: subscriptions.length, delivered, suppressed: false };
++}
+diff --git a/artifacts/personal-ai-assistant/public/sw.js b/artifacts/personal-ai-assistant/public/sw.js
+index d71c63c..3474a32 100644
+--- a/artifacts/personal-ai-assistant/public/sw.js
++++ b/artifacts/personal-ai-assistant/public/sw.js
+@@ -6,11 +6,26 @@ self.addEventListener('push', (event) => {
+     data = {};
+   }
+   event.waitUntil(
+-    self.registration.showNotification(data.title || 'Lumen reminder', {
+-      body: data.body || 'You have a reminder.',
+-      tag: data.reminderId ? `lumen-reminder-${data.reminderId}` : 'lumen-reminder',
+-      data: { url: self.registration.scope },
+-    }),
++    (async () => {
++      // Push services can queue a notification while the phone is offline. Check
++      // the current server state at delivery time so a queued alert stays hushed.
++      const response = await fetch(new URL('/api/push/privacy', self.location.origin), {
++        cache: 'no-store',
++        credentials: 'same-origin',
++      });
++      if (!response.ok) return;
++      const privacy = await response.json();
++      if (privacy.darkMode) return;
++
++      const dueAt = Date.parse(data.dueAt);
++      if (!Number.isFinite(dueAt) || Date.now() - dueAt > 3 * 60 * 1000) return;
++
++      await self.registration.showNotification(data.title || 'Lumen reminder', {
++        body: data.body || 'You have a reminder.',
++        tag: data.reminderId ? `lumen-reminder-${data.reminderId}` : 'lumen-reminder',
++        data: { url: self.registration.scope },
++      });
++    })(),
+   );
+ });
+ 
+@@ -22,4 +37,4 @@ self.addEventListener('notificationclick', (event) => {
+       return existing ? existing.focus() : clients.openWindow(self.registration.scope);
+     }),
+   );
+-});
+\ No newline at end of file
++});
+diff --git a/artifacts/personal-ai-assistant/src/App.tsx b/artifacts/personal-ai-assistant/src/App.tsx
+index 83619c5..f2b255d 100644
+--- a/artifacts/personal-ai-assistant/src/App.tsx
++++ b/artifacts/personal-ai-assistant/src/App.tsx
+@@ -1,3 +1,4 @@
++import { AssistantActionText } from "./components/assistant-action-text";
+ import {
+   createContext,
+   type ChangeEvent,
+@@ -17,7 +18,7 @@ import { Toaster } from '@/components/ui/toaster';
+ import { TooltipProvider } from '@/components/ui/tooltip';
+ import { toast } from '@/hooks/use-toast';
+ import {
+-  Activity, Archive, ArrowUp, Bell, Brain, Camera, Check, ChevronRight, CircleHelp, Cloud,
++  Activity, Archive, ArrowUp, Bell, Brain, Camera, Check, ChevronRight, CircleHelp, Cloud, Hand, Smile,
+   Ellipsis, FileText, FolderOpen, Globe2, Link2, Loader2,
+   MessageSquare, Plus, Settings2, ShieldCheck, Sparkles,
+   Trash2, Waypoints, Wifi, X, Zap,
+@@ -53,11 +54,17 @@ import {
+ } from '@/lib/optimistic-messages';
+ import { imageFromPasteDetails, photoReadyForSend, resizePhoto } from '@/lib/photo';
+ import {
+-  deleteLocalPhotos, loadLocalPhotos, persistSentPhoto, photoMessageText,
++  deleteLocalPhotos, loadConversationPhotos, persistSentPhoto, photoMessageText,
+   photoUrlForMessage, type LocalPhotoUrls,
+ } from '@/lib/local-photos';
+ import { PhotoViewer } from '@/components/photo-viewer';
+ import { PhotoDiagnosticDetail } from '@/components/photo-diagnostic-detail';
++import { TestImageControl } from '@/components/test-image-control';
++import { ConversationGeneratedImage } from '@/components/conversation-generated-image';
++import { ACTIVE_CONVERSATION_KEY, readActiveConversation, resolveConversationSelection } from '@/lib/conversation-selection';
++import { readConversationImageFailure, readTestImageError } from '@/lib/test-image-errors';
++import { useChatScroll } from '@/hooks/use-chat-scroll';
++import { privacyModeCommand } from '@/lib/privacy-mode-command';
+ import {
+   readPhotoDiagnostics, updatePhotoDiagnostic,
+   type PhotoDiagnostic, type PhotoSource,
+@@ -145,6 +152,87 @@ function reportPushDiagnostic(stage: PushDiagnosticStage, error: unknown) {
+   return detail;
+ }
+ 
++type PrivacyModeState = { darkMode: boolean; activatedAt: string | null; changed?: boolean; released?: number; releasePending?: boolean };
++
++async function writePrivacyMode(darkMode: boolean): Promise<PrivacyModeState> {
++  const response = await fetch('/api/push/privacy', {
++    method: 'PUT',
++    headers: { 'content-type': 'application/json' },
++    body: JSON.stringify({ darkMode }),
++  });
++  if (!response.ok) throw new Error('Could not update Dark Mode.');
++  const state = await response.json() as PrivacyModeState;
++  window.dispatchEvent(new CustomEvent('lumen:privacy-mode', { detail: state }));
++  if (darkMode && 'serviceWorker' in navigator) {
++    void navigator.serviceWorker.getRegistration().then((registration) =>
++      registration?.getNotifications().then((notifications) => {
++        notifications.filter((notification) => notification.tag.startsWith('lumen-reminder-')).forEach((notification) => notification.close());
++      }),
++    ).catch(() => undefined);
++  }
++  return state;
++}
++
++function PrivacyModeControl() {
++  const [darkMode, setDarkMode] = useState<boolean | null>(null);
++  const [busy, setBusy] = useState(false);
++  const refresh = useCallback(async () => {
++    try {
++      const response = await fetch('/api/push/privacy', { cache: 'no-store' });
++      if (!response.ok) throw new Error('Privacy state unavailable');
++      const state = await response.json() as PrivacyModeState;
++      setDarkMode(state.darkMode);
++    } catch {
++      setDarkMode(null);
++    }
++  }, []);
++
++  useEffect(() => {
++    void refresh();
++    const receive = (event: Event) => setDarkMode((event as CustomEvent<PrivacyModeState>).detail.darkMode);
++    const onFocus = () => void refresh();
++    window.addEventListener('lumen:privacy-mode', receive);
++    window.addEventListener('focus', onFocus);
++    return () => {
++      window.removeEventListener('lumen:privacy-mode', receive);
++      window.removeEventListener('focus', onFocus);
++    };
++  }, [refresh]);
++
++  const toggle = async () => {
++    if (darkMode === null || busy) return;
++    setBusy(true);
++    try {
++      const state = await writePrivacyMode(!darkMode);
++      setDarkMode(state.darkMode);
++      if (state.changed) toast({ title: state.darkMode ? 'Dark Mode on' : 'All Clear', description: state.darkMode ? 'Lumen will stay quiet while continuing to process in the background.' : undefined });
++    } catch {
++      toast({ title: 'Could not change privacy mode', description: 'Check your connection and try again.', variant: 'destructive' });
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  const active = darkMode === true;
++  return <button
++    type="button"
++    role="switch"
++    aria-checked={darkMode === true}
++    aria-label={darkMode === null ? 'Privacy mode status unavailable' : active ? 'Dark Mode active. Activate All Clear.' : 'All Clear active. Activate Dark Mode.'}
++    title={darkMode === null ? 'Privacy mode unavailable' : active ? 'Dark Mode' : 'All Clear'}
++    onClick={() => void toggle()}
++    disabled={darkMode === null || busy}
++    className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-medium shadow-lg transition-colors disabled:opacity-50 ${active ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border bg-card text-foreground'}`}
++    data-testid="button-privacy-mode"
++  >
++    {active ? <Hand size={17} aria-hidden="true" /> : <Smile size={17} aria-hidden="true" />}
++    <span className="min-w-[4.5rem] text-left">{darkMode === null ? 'Loading…' : active ? 'Dark Mode' : 'All Clear'}</span>
++    <span aria-hidden="true" className={`relative h-5 w-9 rounded-full transition-colors ${active ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
++      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform ${active ? 'translate-x-4' : 'translate-x-0.5'}`} />
++    </span>
++  </button>;
++}
++
+ function NotificationControl({ compact = false }: { compact?: boolean }) {
+   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+   const [state, setState] = useState<'checking' | 'disabled' | 'enabled' | 'unavailable'>('checking');
+@@ -421,12 +509,12 @@ function AppShell({ children }: { children: ReactNode }) {
+             <div className="mb-3 flex items-center justify-between"><span className="font-mono text-[9px] uppercase tracking-[.16em] text-sidebar-foreground/45">System note</span><ShieldCheck size={14} className="text-sidebar-primary" /></div>
+             <p className="text-xs leading-relaxed text-sidebar-foreground/70">Lumen keeps your context close and your permissions explicit.</p>
+           </div>
+-          <NotificationControl />
++      <NotificationControl />
+           <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground" data-testid="button-settings" aria-label="Open preferences"><Settings2 size={16} /><span>Preferences</span><ChevronRight size={14} className="ml-auto opacity-50" /></button>
+         </div>
+       </aside>
+       <div className="md:pl-[250px]">{children}</div>
+-      <div className="fixed right-4 top-4 z-30 md:hidden"><NotificationControl compact /></div>
++      <div className="fixed right-4 top-4 z-30 flex items-center gap-2 md:right-6 md:top-6"><PrivacyModeControl /><NotificationControl compact /></div>
+       <div className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-30 min-h-[var(--mobile-nav-height)] border-t border-border bg-background/95 px-3 pb-[env(safe-area-inset-bottom)] pt-2 backdrop-blur md:hidden">
+         <nav className="mx-auto flex max-w-md justify-around">
+           {nav.map(({ href, label, icon: Icon }) => <Link key={href} href={href} data-testid={`link-mobile-${label.toLowerCase()}`} className={`flex flex-col items-center gap-1 px-5 py-1 text-[10px] ${location === href ? 'text-primary' : 'text-muted-foreground'}`}><Icon size={18} /><span>{label}</span></Link>)}
+@@ -449,7 +537,7 @@ function Workspace() {
+   const conversationsQuery = useListAssistantConversations();
+   const overview = overviewQuery.data;
+   const conversations = conversationsQuery.data ?? [];
+-  const [selectedId, setSelectedId] = useState<number | null>(null);
++  const [selectedId, setSelectedId] = useState<number | null>(readActiveConversation);
+   const [composer, setComposer] = useState('');
+   const [photo, setPhoto] = useState<string | null>(null);
+   const [photoSource, setPhotoSource] = useState<PhotoSource | null>(null);
+@@ -477,17 +565,23 @@ function Workspace() {
+   const [showNew, setShowNew] = useState(false);
+   const [mobilePanel, setMobilePanel] = useState<'list' | 'context' | null>(null);
+   const messagesRef = useRef<HTMLDivElement>(null);
+-  const scrollAfterPhotosRef = useRef(false);
++  const messageContentRef = useRef<HTMLDivElement>(null);
+   const pendingPhotoWritesRef = useRef<Set<Promise<void>>>(new Set());
+   const composerRef = useRef<HTMLTextAreaElement>(null);
+-  const keepLatestVisibleRef = useRef(false);
+   const assistantTraceIdRef = useRef<string | null>(null);
+   const assistantTraceHeadersRef = useRef<Record<string, string>>({});
+-  const selected = selectedId ?? overview?.activeConversationId ?? conversations[0]?.id ?? null;
++  const selected = resolveConversationSelection(selectedId, conversations, overview?.activeConversationId);
++  useEffect(() => {
++    if (selected === null) return;
++    try { localStorage.setItem(ACTIVE_CONVERSATION_KEY, String(selected)); } catch { /* Selection still works without browser storage. */ }
++  }, [selected]);
+   const detailQuery = useGetAssistantConversation(selected ?? 0, {
+     query: { enabled: !!selected, queryKey: getGetAssistantConversationQueryKey(selected ?? 0) },
+     request: { headers: assistantTraceHeadersRef.current },
+   });
++  const importedPhotoLookupKey = detailQuery.data?.messages
++    .filter((message) => message.metadata?.includes('"threadConsolidation"'))
++    .map((message) => message.id).join(',') ?? '';
+   const createConversation = useCreateAssistantConversation();
+   const deleteConversation = useDeleteAssistantConversation();
+   const sendMessage = useSendAssistantMessage({
+@@ -501,6 +595,10 @@ function Workspace() {
+     canonicalMessages,
+     optimisticMessages.filter((message) => message.conversationId === selected),
+   );
++  const { awayFromLatest, jumpToLatest } = useChatScroll(
++    messagesRef, messageContentRef, selected,
++    active?.id === selected && photoLookup?.conversationId === selected && photoLookup.status !== 'loading',
++  );
+   const latestAssistantMessage = [...canonicalMessages].reverse().find((message) => message.role === 'assistant');
+   const latestUserMessage = [...canonicalMessages].reverse().find((message) => message.role === 'user');
+   const [lastInteractionAt, setLastInteractionAt] = useState<string | null>(readStoredLastInteractionAt);
+@@ -534,15 +632,12 @@ function Workspace() {
+       conversationId: selected, status: 'loading', checkedAt: 0, foundIds: new Set(),
+     });
+     if (selected === null) return;
+-    void loadLocalPhotos(selected).then((photos) => {
++    void loadConversationPhotos(selected, detailQuery.data?.messages ?? []).then((photos) => {
+       if (disposed) return;
+       setPhotoLookup({
+         conversationId: selected, status: 'ready', checkedAt: Date.now(),
+         foundIds: new Set(photos.map((item) => item.messageId)),
+       });
+-      const messages = messagesRef.current;
+-      scrollAfterPhotosRef.current = !!messages &&
+-        messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
+       const byMessageId: Record<number, string> = {};
+       for (const item of photos) {
+         const url = URL.createObjectURL(item.blob);
+@@ -563,39 +658,12 @@ function Workspace() {
+       disposed = true;
+       urls.forEach((url) => URL.revokeObjectURL(url));
+     };
+-  }, [selected]);
+-
+-  useLayoutEffect(() => {
+-    if (scrollAfterPhotosRef.current && messagesRef.current) {
+-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+-    }
+-    scrollAfterPhotosRef.current = false;
+-  }, [localPhotos]);
++  }, [selected, importedPhotoLookupKey]);
+ 
+   useEffect(() => {
+     if (!selectedId && overview?.activeConversationId) setSelectedId(overview.activeConversationId);
+   }, [overview?.activeConversationId, selectedId]);
+ 
+-  useEffect(() => {
+-    const messages = messagesRef.current;
+-    if (messages) messages.scrollTop = messages.scrollHeight;
+-  }, [displayedMessages.length, isThinking]);
+-
+-  useEffect(() => {
+-    const messages = messagesRef.current;
+-    if (!messages) return;
+-    let previousHeight = messages.clientHeight;
+-    const observer = new ResizeObserver(() => {
+-      const height = messages.clientHeight;
+-      if (height < previousHeight && keepLatestVisibleRef.current &&
+-          document.activeElement === composerRef.current && window.innerWidth < 640) {
+-        messages.scrollTop = messages.scrollHeight;
+-      }
+-      previousHeight = height;
+-    });
+-    observer.observe(messages);
+-    return () => observer.disconnect();
+-  }, []);
+ 
+   useLayoutEffect(() => {
+     const textarea = composerRef.current;
+@@ -689,7 +757,28 @@ function Workspace() {
+     setPhotoProcessing(false);
+   };
+   const submitMessage = () => {
+-    if (!selected || (!composer.trim() && !photo) || isThinking ||
++    if (isThinking) return;
++    const privacyCommand = photo ? null : privacyModeCommand(composer);
++    if (privacyCommand !== null) {
++      setComposer('');
++      void writePrivacyMode(privacyCommand).then((state) => {
++        if (!state.changed) return;
++        toast({
++          title: state.darkMode ? 'Dark Mode on' : 'All Clear',
++          description: state.darkMode
++            ? 'Lumen will stay quiet while continuing to process in the background.'
++            : state.releasePending
++              ? 'Notifications are resumed. Recent reminders will be retried automatically.'
++              : state.released
++                ? `${state.released} recent reminder${state.released === 1 ? '' : 's'} released.`
++                : undefined,
++        });
++      }).catch(() => {
++        toast({ title: 'Could not change privacy mode', description: 'Check your connection and try again.', variant: 'destructive' });
++      });
++      return;
++    }
++    if (!selected || (!composer.trim() && !photo) ||
+         !photoReadyForSend(photo, photoReadyRef.current, photoProcessing || photoProcessingRef.current)) return;
+     const content = composer.trim();
+     const photoDataUrl = photo;
+@@ -777,6 +866,20 @@ function Workspace() {
+         qc.invalidateQueries({ queryKey: getGetAssistantOverviewQueryKey() });
+       },
+       onError: async (error) => {
++        const imageError = readTestImageError(error);
++        if (imageError) toast({
++          title: 'Image generation failed',
++          description: `OpenAI HTTP ${imageError.status}: ${imageError.message} · code: ${imageError.code ?? '(not provided)'} · type: ${imageError.type ?? '(not provided)'} · param: ${imageError.param ?? '(not provided)'}`,
++          variant: 'destructive',
++          duration: 30000,
++        });
++        else {
++          const failure = readConversationImageFailure(error);
++          if (failure) toast({
++            title: 'Image generation failed', description: failure,
++            variant: 'destructive', duration: 30000,
++          });
++        }
+         console.error('[assistant-trace]', {
+           traceId,
+           traceVersion: ASSISTANT_TRACE_VERSION,
+@@ -827,12 +930,12 @@ function Workspace() {
+       onSettled: () => setIsSubmittingMessage(false),
+     });
+   };
+-  return <div className="workspace-viewport h-[calc(var(--app-viewport-height)-var(--mobile-nav-height))] min-h-0 overflow-hidden md:h-auto md:min-h-screen">
++  return <div className="workspace-viewport h-[calc(var(--app-viewport-height)-var(--mobile-nav-height))] min-h-0 overflow-hidden">
+     <div className="flex h-16 items-center justify-between border-b border-border px-5 sm:px-8 lg:px-12">
+       <div className="flex items-center gap-3"><div className="h-2 w-2 rounded-full bg-[hsl(var(--chart-3))] shadow-[0_0_0_4px_hsl(var(--chart-3)/.12)]" /><span className="font-mono text-[10px] uppercase tracking-[.18em] text-muted-foreground">Ready when you are</span></div>
+        <div className="flex items-center gap-3"><span className="hidden text-xs text-muted-foreground sm:inline">{overview?.model ?? 'Assistant'} <span className="mx-1 text-border">/</span> {overview?.modelStatus ?? 'standby'}</span><button aria-label="Open help" title="Help" className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" data-testid="button-help"><CircleHelp size={17} /></button></div>
+     </div>
+-      <div className="grid h-[calc(var(--app-viewport-height)-var(--mobile-nav-height)-4rem)] min-h-0 lg:grid-cols-[250px_minmax(0,1fr)_278px] lg:min-h-[calc(100dvh-64px)] lg:h-auto">
++      <div className="grid h-[calc(var(--app-viewport-height)-var(--mobile-nav-height)-4rem)] min-h-0 lg:grid-cols-[250px_minmax(0,1fr)_278px]">
+       <section className={`${mobilePanel === 'list' ? 'fixed inset-0 z-40 flex' : 'hidden'} flex-col border-r border-border bg-card lg:static lg:flex`}>
+          <div className="flex items-center justify-between border-b border-border px-5 py-5"><div><p className="font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">Conversations</p><p className="mt-1 text-xs text-muted-foreground">{overview?.conversationCount ?? conversations.length} threads</p></div><button className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-transform hover:-translate-y-0.5" onClick={() => setShowNew(true)} aria-label="New conversation" title="New conversation" data-testid="button-new-conversation"><Plus size={16} /><span>New</span></button></div>
+         {showNew && <div className="border-b border-border bg-muted/50 p-4"><input autoFocus value={newTitle} onChange={(event) => setNewTitle(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && submitNew()} placeholder="Name this thread" className="mb-2 w-full border-b border-primary/50 bg-transparent px-1 py-2 text-sm outline-none placeholder:text-muted-foreground/60" data-testid="input-conversation-title" /><div className="flex justify-end gap-2"><button onClick={() => setShowNew(false)} className="px-2 py-1 text-xs text-muted-foreground" data-testid="button-cancel-conversation">Cancel</button><button onClick={submitNew} disabled={createConversation.isPending} className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50" data-testid="button-create-conversation">{createConversation.isPending ? 'Opening…' : 'Open thread'}</button></div></div>}
+@@ -841,9 +944,11 @@ function Workspace() {
+         </div>
+          <button onClick={() => setMobilePanel(null)} className="m-3 flex items-center justify-center gap-2 rounded-lg border border-border py-2 text-xs text-muted-foreground lg:hidden" aria-label="Close conversations panel" data-testid="button-close-conversation-panel"><X size={14} /> Close</button>
+       </section>
+-        <main className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background lg:min-h-[calc(100dvh-64px)]">
++        <main className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-8"><div className="min-w-0 flex-1"><div role="status" aria-live="polite" aria-atomic="true" title={active?.title ?? 'Ren status'} className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/[.06] px-2.5 py-1.5 text-xs text-foreground shadow-sm" data-testid="ren-mood-status" data-last-interaction-at={lastInteractionAt ?? ''} data-elapsed-ms={elapsedSinceLastInteractionMs ?? ''}><span aria-hidden="true" className="text-primary">{displayedRenMood.symbol}</span><span className="font-medium text-primary">Ren</span><span className="text-muted-foreground/50">·</span><span className="truncate text-muted-foreground">{displayedRenMood.label}</span></div><p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[.16em] text-muted-foreground">{active ? `${displayedMessages.length} messages · private thread` : 'No thread selected'}</p></div><div className="flex shrink-0 gap-2 lg:hidden"><button onClick={() => setMobilePanel('list')} aria-label="Open conversations" title="Open conversations" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground" data-testid="button-open-conversation-panel"><Archive size={15} /><span>Chats</span></button><button onClick={() => setMobilePanel('context')} aria-label="Open context and capabilities" title="Open context and capabilities" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground" data-testid="button-open-context-panel"><Activity size={15} /><span className="min-[360px]:hidden">Info</span><span className="hidden min-[360px]:inline">Context</span></button></div>{active && <button onClick={() => { if (confirm('Delete this conversation?')) deleteConversation.mutate({ id: active.id }, { onSuccess: () => { void Promise.allSettled([...pendingPhotoWritesRef.current]).then(() => deleteLocalPhotos(active.id)).catch(() => setPhotoError('Conversation deleted, but its locally saved photos could not be removed from this browser.')); setSelectedId(null); qc.invalidateQueries({ queryKey: getListAssistantConversationsQueryKey() }); qc.invalidateQueries({ queryKey: getGetAssistantOverviewQueryKey() }); } }); }} disabled={isThinking} aria-label="Delete conversation" title="Delete conversation" className="hidden rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40 sm:block" data-testid="button-delete-conversation"><Trash2 size={15} /></button>}</div>
+-         <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 sm:px-8 lg:px-14">
++          <TestImageControl />
++          <div ref={messagesRef} data-testid="chat-scroll-container" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-8 sm:px-8 lg:px-14">
++            <div ref={messageContentRef}>
+              {!selected ? <div className="flex h-full min-h-[420px] flex-col items-center justify-center text-center"><div className="mb-5 flex h-16 w-16 items-center justify-center rounded-lg border border-accent/40 bg-accent/10 text-primary"><Sparkles size={25} strokeWidth={1.4} /></div><h2 className="font-serif text-3xl">A clear place to begin.</h2><p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">Choose a thread or open a new one. Lumen is here to think alongside you.</p><button onClick={() => setShowNew(true)} className="mt-6 flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm text-primary-foreground transition-transform hover:-translate-y-0.5" data-testid="button-empty-new-conversation"><Plus size={15} /> Start a thread</button></div> : detailQuery.isLoading ? <div className="mx-auto max-w-2xl pt-8"><LoadingLines count={7} /></div> : detailQuery.isError ? <div className="mx-auto mt-10 max-w-sm rounded-lg border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="text-sm font-medium text-destructive">This thread could not be opened.</p><button onClick={() => detailQuery.refetch()} className="mt-3 text-xs underline" data-testid="button-retry-conversation">Try again</button></div> : displayedMessages.length === 0 ? <div className="mx-auto flex min-h-[400px] max-w-xl flex-col items-center justify-center text-center"><div className="mb-5 font-mono text-[10px] uppercase tracking-[.2em] text-accent">New thread</div><h2 className="font-serif text-4xl">What should we hold today?</h2><p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">Ask for a considered answer, a web search, or a small action. You stay in control.</p><div className="mt-8 grid grid-cols-1 gap-2 text-left sm:grid-cols-3"><button onClick={() => setComposer('Help me make sense of something I am working through')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-clarify">Make sense of something</button><button onClick={() => setComposer('Research this topic and bring me the useful details')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-research">Research a topic</button><button onClick={() => setComposer('Help me plan the next steps for a project')} className="rounded-lg border border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground" data-testid="button-suggestion-plan">Plan next steps</button></div></div> : <div className="mx-auto max-w-2xl space-y-8">{displayedMessages.map((message) => {
+                const isOptimistic = 'optimistic' in message;
+                const photoUrl = !isOptimistic ? photoUrlForMessage(message, localPhotos) : undefined;
+@@ -863,15 +968,24 @@ function Workspace() {
+                   message.content.startsWith('[Photo attached]') && !photoUrl && !diagnostic?.dismissed;
+                return <div key={message.id} className={`flex gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`} data-testid={`message-${message.id}`}>
+                  <div className={`max-w-[88%] ${message.role === 'user' ? `rounded-lg rounded-br-md px-4 py-3 text-primary-foreground ${isOptimistic && message.status === 'failed' ? 'bg-destructive/80' : 'bg-primary'}` : 'pt-1'}`}>
+-                   {photoUrl && <button type="button" onClick={() => setViewerMessageId(Number(message.id))} aria-label="View attached photo full screen" className="block overflow-hidden rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" data-testid={`button-photo-thumbnail-${message.id}`}><img src={photoUrl} alt="Attached photo thumbnail" className="h-24 w-24 object-cover" /></button>}
+-                   {text && <div className={`whitespace-pre-wrap text-[14px] leading-7 ${photoUrl ? 'mt-2' : ''} ${message.role === 'assistant' ? 'text-foreground/85' : ''}`}>{text}</div>}
++                    {!isOptimistic && message.role === 'assistant' && <ConversationGeneratedImage conversationId={Number(message.conversationId)} messageId={Number(message.id)} metadata={message.metadata} />}
++                    {photoUrl && <button type="button" onClick={() => setViewerMessageId(Number(message.id))} aria-label="View attached photo full screen" className="block overflow-hidden rounded-md focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-white" data-testid={`button-photo-thumbnail-${message.id}`}><img src={photoUrl} alt="Attached photo thumbnail" className="h-24 w-24 object-cover" /></button>}
++                   {text && <div className={`whitespace-pre-wrap text-[14px] leading-7 ${photoUrl ? 'mt-2' : ''} ${message.role === 'assistant' ? 'text-foreground/85' : ''}`}>{message.role === 'assistant' ? <AssistantActionText content={text} metadata={message.metadata} /> : text}</div>}
+                     {showDiagnostic && <PhotoDiagnosticDetail conversationId={conversationId} messageId={messageId} diagnostic={diagnostic} lookup={lookup} onDismiss={() => recordPhotoDiagnostic(conversationId, messageId, { dismissed: true })} />}
+                    <div className={`mt-2 font-mono text-[9px] uppercase tracking-[.12em] ${message.role === 'user' ? 'text-primary-foreground/55' : 'text-muted-foreground'}`}>{isOptimistic ? (message.status === 'failed' ? 'Not sent · text preserved' : 'Sending…') : message.role === 'assistant' ? `${message.model ?? overview?.model ?? 'Lumen'} · ${formatDate(message.createdAt)}` : formatDate(message.createdAt)}</div>
+                    {isOptimistic && message.status === 'failed' && <div className="mt-3 flex gap-3 border-t border-white/20 pt-2 text-[11px] font-medium"><button type="button" className="underline underline-offset-2" onClick={() => { const restored = restoreFailedDraft(optimisticMessages, message.submittedAt); if (restored.composer !== null) setComposer(restored.composer); }} data-testid={`button-restore-${message.submittedAt}`}>Restore to composer</button><button type="button" className="text-primary-foreground/70 underline underline-offset-2" onClick={() => setOptimisticMessages((current) => dismissFailedDraft(current, message.submittedAt))} data-testid={`button-dismiss-${message.submittedAt}`}>Dismiss</button></div>}
+                  </div>
+                </div>;
+              })}{isThinking && <div className="flex gap-4"><div className="flex items-center gap-2 pt-1 text-muted-foreground"><span className="flex gap-1"><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:120ms]" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent [animation-delay:240ms]" /></span><span className="font-mono text-[10px] uppercase tracking-widest">Thinking</span></div></div>}</div>}
++            </div>
+         </div>
++          {awayFromLatest && <div className="relative h-14 shrink-0" data-testid="jump-to-latest-region">
++            <button type="button" onPointerDown={(event) => event.preventDefault()} onClick={jumpToLatest}
++              aria-label="Jump to latest" title="Jump to latest" data-testid="button-jump-to-latest"
++              className="absolute bottom-2 left-1/2 flex h-11 w-11 -translate-x-1/2 items-center justify-center rounded-full border border-primary/40 bg-card text-primary shadow-lg shadow-black/50 transition-colors hover:bg-primary/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
++              <ArrowDown size={21} aria-hidden="true" />
++            </button>
++          </div>}
+           <div className="message-composer-bar shrink-0 border-t border-border bg-background/90 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur sm:px-8 lg:px-14">
+            <div className="mx-auto max-w-2xl">
+               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" aria-label="Choose a photo" onChange={selectPhoto} data-testid="input-photo" />
+@@ -889,12 +1003,6 @@ function Workspace() {
+                     if (!event.clipboardData.getData('text/plain')) event.preventDefault();
+                     void preparePhoto(image.file, 'paste', image.representation);
+                   }}
+-                  onFocus={() => {
+-                    const messages = messagesRef.current;
+-                    keepLatestVisibleRef.current = !!messages &&
+-                      messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
+-                  }}
+-                  onBlur={() => { keepLatestVisibleRef.current = false; }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+@@ -1018,4 +1126,4 @@ function Router() {
+   return <QueryClientProvider client={queryClient}><TooltipProvider><Router /><Toaster /></TooltipProvider></QueryClientProvider>;
+ }
+ 
+-export default App;
+\ No newline at end of file
++export default App;
+diff --git a/lib/db/src/schema/assistant.ts b/lib/db/src/schema/assistant.ts
+index 9808efb..3574897 100644
+--- a/lib/db/src/schema/assistant.ts
++++ b/lib/db/src/schema/assistant.ts
+@@ -1,5 +1,5 @@
+ import { createInsertSchema } from "drizzle-zod";
+-import { integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
++import { boolean, integer, pgTable, serial, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+ import { z } from "zod/v4";
+ 
+ export const assistantConversationsTable = pgTable("assistant_conversations", {
+@@ -7,6 +7,7 @@ export const assistantConversationsTable = pgTable("assistant_conversations", {
+   title: text("title").notNull(),
+   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
++  archivedAt: timestamp("archived_at", { withTimezone: true }),
+ });
+ 
+ export const assistantMessagesTable = pgTable("assistant_messages", {
+@@ -33,6 +34,13 @@ export const assistantProviderSettingsTable = pgTable("assistant_provider_settin
+   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+ });
+ 
++export const assistantPrivacySettingsTable = pgTable("assistant_privacy_settings", {
++  id: integer("id").primaryKey(),
++  darkMode: boolean("dark_mode").notNull().default(false),
++  activatedAt: timestamp("activated_at", { withTimezone: true }),
++  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
++});
++
+ export const assistantRemindersTable = pgTable("assistant_reminders", {
+   id: serial("id").primaryKey(),
+   text: text("text").notNull(),
+@@ -69,4 +77,4 @@ export type AssistantMemory = typeof assistantMemoryTable.$inferSelect;
+ export const insertAssistantProviderSettingsSchema = createInsertSchema(assistantProviderSettingsTable).omit({ id: true, updatedAt: true });
+ export type AssistantProviderSettings = typeof assistantProviderSettingsTable.$inferSelect;
+ export type AssistantReminder = typeof assistantRemindersTable.$inferSelect;
+-export type AssistantPushSubscription = typeof assistantPushSubscriptionsTable.$inferSelect;
+\ No newline at end of file
++export type AssistantPushSubscription = typeof assistantPushSubscriptionsTable.$inferSelect;
+diff --git a/artifacts/api-server/src/tools/privacy-mode.ts b/artifacts/api-server/src/tools/privacy-mode.ts
+new file mode 100644
+index 0000000..48ce412
+--- /dev/null
++++ b/artifacts/api-server/src/tools/privacy-mode.ts
+@@ -0,0 +1,41 @@
++import { eq } from "drizzle-orm";
++import { assistantPrivacySettingsTable, db } from "@workspace/db";
++
++const SETTINGS_ID = 1;
++
++export async function getPrivacyMode() {
++  const [settings] = await db
++    .select()
++    .from(assistantPrivacySettingsTable)
++    .where(eq(assistantPrivacySettingsTable.id, SETTINGS_ID))
++    .limit(1);
++  if (settings) return settings;
++
++  const [created] = await db
++    .insert(assistantPrivacySettingsTable)
++    .values({ id: SETTINGS_ID, darkMode: false })
++    .onConflictDoNothing()
++    .returning();
++  if (created) return created;
++
++  const [concurrentSettings] = await db
++    .select()
++    .from(assistantPrivacySettingsTable)
++    .where(eq(assistantPrivacySettingsTable.id, SETTINGS_ID))
++    .limit(1);
++  if (!concurrentSettings) throw new Error("Could not initialize privacy settings");
++  return concurrentSettings;
++}
++
++export async function setPrivacyMode(darkMode: boolean, now = new Date()) {
++  const current = await getPrivacyMode();
++  if (current.darkMode === darkMode) return { settings: current, changed: false };
++
++  const [settings] = await db
++    .update(assistantPrivacySettingsTable)
++    .set({ darkMode, activatedAt: darkMode ? now : null, updatedAt: now })
++    .where(eq(assistantPrivacySettingsTable.id, SETTINGS_ID))
++    .returning();
++  if (!settings) throw new Error("Could not update privacy settings");
++  return { settings, changed: true };
++}
+diff --git a/artifacts/api-server/src/tools/reminder-notification-policy.ts b/artifacts/api-server/src/tools/reminder-notification-policy.ts
+new file mode 100644
+index 0000000..d2ba7ae
+--- /dev/null
++++ b/artifacts/api-server/src/tools/reminder-notification-policy.ts
+@@ -0,0 +1,5 @@
++export const REMINDER_NOTIFICATION_GRACE_MS = 3 * 60 * 1000;
++
++export function isReminderFreshEnough(dueAt: Date, now: Date) {
++  return dueAt.getTime() >= now.getTime() - REMINDER_NOTIFICATION_GRACE_MS;
++}
+diff --git a/artifacts/api-server/src/tools/reminder-notification-policy.test.ts b/artifacts/api-server/src/tools/reminder-notification-policy.test.ts
+new file mode 100644
+index 0000000..eec76ce
+--- /dev/null
++++ b/artifacts/api-server/src/tools/reminder-notification-policy.test.ts
+@@ -0,0 +1,10 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { isReminderFreshEnough, REMINDER_NOTIFICATION_GRACE_MS } from "./reminder-notification-policy.ts";
++
++test("All Clear accepts reminders within the three-minute window", () => {
++  const now = new Date("2026-10-07T17:00:00.000Z");
++  assert.equal(isReminderFreshEnough(new Date(now.getTime()), now), true);
++  assert.equal(isReminderFreshEnough(new Date(now.getTime() - REMINDER_NOTIFICATION_GRACE_MS), now), true);
++  assert.equal(isReminderFreshEnough(new Date(now.getTime() - REMINDER_NOTIFICATION_GRACE_MS - 1), now), false);
++});
+diff --git a/artifacts/personal-ai-assistant/src/lib/privacy-mode-command.ts b/artifacts/personal-ai-assistant/src/lib/privacy-mode-command.ts
+new file mode 100644
+index 0000000..490aba1
+--- /dev/null
++++ b/artifacts/personal-ai-assistant/src/lib/privacy-mode-command.ts
+@@ -0,0 +1,6 @@
++export function privacyModeCommand(text: string): boolean | null {
++  const command = text.trim().toLowerCase().replace(/[.!?]+$/g, '').replace(/\s+/g, ' ');
++  if (/^(?:hey lumen[, ]+)?(?:dark mode|go dark|silent mode|silent mode activated|hush mode|turn on dark mode|activate dark mode)(?: please)?$/.test(command)) return true;
++  if (/^(?:hey lumen[, ]+)?(?:all clear|clear mode|resume notifications|end dark mode|turn off dark mode|activate all clear)(?: please)?$/.test(command)) return false;
++  return null;
++}
+diff --git a/artifacts/personal-ai-assistant/src/lib/privacy-mode-command.test.ts b/artifacts/personal-ai-assistant/src/lib/privacy-mode-command.test.ts
+new file mode 100644
+index 0000000..230f667
+--- /dev/null
++++ b/artifacts/personal-ai-assistant/src/lib/privacy-mode-command.test.ts
+@@ -0,0 +1,15 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { privacyModeCommand } from "./privacy-mode-command.ts";
++
++test("recognized privacy phrases map to explicit state changes", () => {
++  assert.equal(privacyModeCommand("Dark Mode"), true);
++  assert.equal(privacyModeCommand("Hey Lumen, go dark please."), true);
++  assert.equal(privacyModeCommand("All Clear"), false);
++  assert.equal(privacyModeCommand("Resume notifications!"), false);
++});
++
++test("ordinary conversation that mentions privacy mode is not intercepted", () => {
++  assert.equal(privacyModeCommand("Can we talk about Dark Mode?"), null);
++  assert.equal(privacyModeCommand(""), null);
++});
+diff --git a/docs/dark-mode-all-clear.md b/docs/dark-mode-all-clear.md
+new file mode 100644
+index 0000000..aa73c1f
+--- /dev/null
++++ b/docs/dark-mode-all-clear.md
+@@ -0,0 +1,24 @@
++# Dark Mode and All Clear
++
++Dark Mode is a persisted Lumen privacy state. It suppresses reminder push notifications while assistant conversations and background processing continue. All Clear resumes delivery and releases only reminders that became due within the previous three minutes; older reminders are marked handled without a late alert. The service worker checks the current state and reminder age before displaying a push that was already queued by the push service.
++
++The top-right switch changes the state. In the composer, the exact commands `Dark Mode`, `Go dark`, or `Silent mode` activate it; `All Clear`, `Resume notifications`, or `End dark mode` turn it off. Repeating the active command leaves the current state alone.
++
++## iPhone Focus automation
++
++Safari and an installed web app cannot read the active iPhone Focus mode directly. To have Focus changes update Lumen without polling, create an iOS Shortcuts personal automation for each Focus mode and use **Get Contents of URL** to send a `PUT` request to:
++
++`https://<your-Lumen-host>/api/push/privacy`
++
++Use a JSON request body with `Content-Type: application/json`:
++
++- When the Focus turns on: `{ "darkMode": true }`
++- When the Focus turns off: `{ "darkMode": false }`
++
++All Clear applies the same three-minute release window. The app refreshes its switch when it next returns to the foreground.
++
++## Database setup
++
++After pulling this change, apply the added table through the existing Drizzle workflow:
++
++`pnpm --filter @workspace/db run push`
