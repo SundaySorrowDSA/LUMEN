@@ -16,6 +16,9 @@
   },
   "references": [
     {
+      "path": "../../lib/assistant-providers"
+    },
+    {
       "path": "../../lib/api-client-react"
     }
   ]

@@ -10,3 +10,4 @@
 - [Image generation baseline](image-generation-baseline.md) — preserve working transport; classify shared photo intent rather than sentence strings, and verify tool calls plus attachments.
 - [Ren canonical character](ren-character.md) — user-defined identity stays consistent across changing wardrobe and scenes; non-Ren images and the sandbox stay separate.
 - [Home Screen artwork](home-screen-artwork.md) — preserve the full supplied image; adaptive maskable crops conflict with the user's requirement.
+- [Truthful action policy](truthful-action-policy.md) — gold means concrete successful tool evidence; the user prefers false negatives, with uncertain actions gray.

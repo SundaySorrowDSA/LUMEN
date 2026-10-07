@@ -1,0 +1,80 @@
+Implement the first version of Lumen’s truthful action text system based on the inspection you just completed.
+
+Preserve existing behavior and architecture. Do not refactor unrelated systems.
+
+The governing rule is:
+
+Every assistant *action span* is ordinary/unverified by default. Gold is allowed only when Lumen has concrete evidence that the described external/tool action actually occurred successfully. When uncertain, use gray.
+
+Frontend
+
+In the assistant-message renderer in artifacts/personal-ai-assistant/src/App.tsx, replace plain assistant text rendering with a small safe action-text renderer.
+
+Requirements:
+
+* Parse balanced *asterisk action* spans.
+* Remove the visible delimiter asterisks when rendered.
+* Render ordinary/unverified actions italic using the existing muted/gray theme color.
+* Render verified tool-backed actions italic using the existing gold/primary theme color.
+* Normal dialogue remains unchanged.
+* User messages remain unchanged.
+* Unmatched/literal asterisks must remain safe plain text.
+* Use React text nodes/elements only; do not inject HTML.
+* Existing historical messages without verification metadata must render their actions gray.
+
+Backend verification metadata
+
+Add an additive message-metadata field for verified action spans. Do not change the database schema.
+
+Create the associations only after the final assistant content has been produced and corrected, using the insertion points identified in the inspection:
+
+* ordinary/tool-assisted path: after final content corrections and before metadata/message persistence
+* generated-image path: after final content correction and confirmed successful image/provider delivery
+
+Parse the final response for balanced action spans and compare each action only against tool operations that actually completed successfully for that response.
+
+Persist enough information for the frontend to identify the verified span reliably, including:
+
+* action span text
+* final-text start/end offsets if practical
+* supporting tool ID
+* verification status
+
+Conservative matching
+
+Do not mark an action verified merely because any tool ran.
+
+A verified action must semantically correspond to the successful operation.
+
+Examples:
+
+* successful calendar retrieval can verify actions such as checking/looking at the schedule or calendar
+* successful calculation can verify calculating, working out, or running the numbers
+* a successfully created reminder can verify setting/creating that reminder
+* a successfully cancelled reminder can verify cancelling/removing that reminder
+* not-found or ambiguous reminder results must not verify a claimed successful cancellation or creation
+* successful web search can verify searching/checking/looking something up online
+* successful photo analysis can verify examining/looking at/analyzing the attached photo
+* completed OpenAI consultation can verify asking/consulting OpenAI or Oracle
+* successful generated-image delivery can verify generating/showing/sending the generated image
+
+Do not allow tool evidence to verify unrelated embodied roleplay actions such as touching, kissing, leaning closer, smiling, walking, sitting, etc.
+
+Prefer false negatives over false positives. If the action wording cannot confidently be associated with the successful tool operation, leave it unverified gray.
+
+Tests
+
+Add focused tests for:
+
+* ordinary *roleplay action* → gray
+* verified tool action → gold
+* mixed response containing one verified action and one ordinary action
+* successful tool call with no matching action → all actions gray
+* failed/ambiguous tool outcome → gray
+* historical message without new metadata → gray
+* unmatched asterisks → safe rendering
+* no actions → existing appearance unchanged
+
+Do not change Ren’s Kindroid behavior or prompt as part of this implementation.
+
+When finished, report the exact files changed, explain how action verification works, and show the tests performed and their results.

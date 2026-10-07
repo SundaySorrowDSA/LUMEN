@@ -2,6 +2,7 @@ import type { ModelRequest, ModelResult } from "@workspace/assistant-providers";
 import { TestImageError } from "../lib/test-image-generation.js";
 import { enforceImageDeliveryStatus } from "./image-delivery-status.js";
 import { generateConversationImage } from "./ren-image-prompt.js";
+import { verifyActionSpans } from "./action-verification.js";
 
 /** Shared by the live dispatcher and isolated transport regressions.
  * Every invocation generates/stores a fresh image before the unchanged KN flow.
@@ -46,12 +47,18 @@ export async function prepareConversationImageDelivery(input: {
   if (result.providerId !== "kindroid" || result.metadata.mode !== "provider") {
     throw new TestImageError(503, "Ren is unavailable. The image request was not saved.");
   }
+  const content = enforceImageDeliveryStatus(result.content, true);
   return {
     result,
-    content: enforceImageDeliveryStatus(result.content, true),
+    content,
     metadata: JSON.stringify({
       providerId: result.providerId, route: result.metadata.routedBy, mode: result.metadata.mode,
       generatedImage: input.image, tools: [{ id: "generate_image", model: input.image.model }], approvalRequired: false,
+      verifiedActionSpans: verifyActionSpans(content, [{
+        toolId: "generate_image",
+        ...(/^\s*selfie\b/i.test(input.prompt) ? { imageFraming: "selfie" as const } :
+          /^\s*portrait\b/i.test(input.prompt) ? { imageFraming: "portrait" as const } : {}),
+      }]),
     }),
   };
 }

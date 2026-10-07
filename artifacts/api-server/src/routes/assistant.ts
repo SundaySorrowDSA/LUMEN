@@ -65,6 +65,7 @@ import { enforceImageDeliveryStatus } from "../tools/image-delivery-status.js";
 import { resolveConversationIntent } from "../tools/conversation-intent.js";
 import { dispatchConversationImage } from "../tools/conversation-image-delivery.js";
 import { appendSuccessfulConsultation } from "../tools/provider-tool-content.js";
+import { collectSuccessfulActionEvidence, verifyActionSpans } from "../tools/action-verification.js";
 import { getOrSelectCurrentRenWardrobe } from "../tools/ren-wardrobe-state.js";
 import { isRenClothingChoice } from "../tools/ren-wardrobe-selector.js";
 import { deleteGeneratedImage, readGeneratedImage } from "../lib/generated-image-storage.js";
@@ -871,6 +872,11 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     ? ensureWorkScheduleResponseAccuracy(result.content, workSchedule)
     : result.content;
   const assistantContent = enforceImageDeliveryStatus(groundedContent, false);
+  const verifiedActionSpans = verifyActionSpans(assistantContent, collectSuccessfulActionEvidence({
+    webSearch, workSchedule, calculation, reminder,
+    photoAnalyzed: Boolean(photoContext),
+    consultation,
+  }));
   if (assistantContent !== groundedContent) traceLog.warn({
     stage: "image_status_claim_corrected", imageGenerationStarted: false,
   }, "Ungrounded image-rendering claim was not saved");
@@ -906,6 +912,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
         mode: result.metadata.mode,
         consultation: consultationResult.consultation,
         photoAnalyzed: Boolean(photoContext),
+        verifiedActionSpans,
         sources: webSearch?.results.map(({ title, url }) => ({ title, url })) ?? [],
         tools: [
           ...(webSearch
