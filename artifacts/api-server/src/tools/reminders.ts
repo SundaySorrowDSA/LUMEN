@@ -27,7 +27,23 @@ const WEEKDAYS = [
 ];
 
 export function requiresReminderTool(message: string): boolean {
+  if (/\bremind\s+me\b/i.test(message)) {
+    // Conversational recollections and statements are not scheduling commands.
+    return /^(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?remind\s+me\b/i.test(message.trim()) &&
+      !/\bremind\s+me\s+(?:how|what|why|who|where|when|of|about|that)\b/i.test(message);
+  }
   return REMINDER_INTENT.test(message);
+}
+
+export class ReminderValidationError extends Error {}
+
+export function parseReminderCreation(message: string, now = new Date()) {
+  const text = extractReminderText(message);
+  const dueAt = parseReminderDateTime(message, now);
+  if (!text || !dueAt || dueAt <= now) {
+    throw new ReminderValidationError("What should I remind you to do, and when? Use a positive whole duration, for example: “Remind me in 75 seconds to test dark mode,” or a future date and time: “Remind me tomorrow at 9 AM to drink water.”");
+  }
+  return { text, dueAt };
 }
 
 function reminderAction(message: string): ReminderToolResult["action"] {
@@ -96,10 +112,30 @@ function zonedLocalToUtc(
 }
 
 function parseReminderDateTime(message: string, now: Date): Date | null {
+  const reminderBody = message.match(/\bremind\s+me\b([\s\S]*)/i)?.[1] ?? "";
+  if (/^\s+in\b/i.test(reminderBody)) {
+    // Resolve only a complete, single duration before the reminder text.
+    // Invalid relative syntax must not fall through to an absolute time
+    // that happens to appear elsewhere in the message.
+    const relative = reminderBody.match(
+      /^\s+in\s+([0-9]+)\s+(seconds?|minutes?|hours?|days?)\s+to\b/i,
+    );
+    if (!relative) return null;
+    const amount = Number(relative[1]);
+    const unit = relative[2].toLowerCase().replace(/s$/, "");
+    const unitMs: Record<string, number> = {
+      second: 1_000, minute: 60_000, hour: 3_600_000, day: 86_400_000,
+    };
+    const durationMs = amount * unitMs[unit];
+    if (!Number.isSafeInteger(amount) || amount <= 0 || !Number.isSafeInteger(durationMs)) return null;
+    const dueAt = new Date(now.getTime() + durationMs);
+    return Number.isFinite(dueAt.getTime()) ? dueAt : null;
+  }
   const timeMatch = message.match(
     /\b(?:at\s+)?([0-9]{1,2})(?::([0-9]{2}))?\s*(AM|PM)\b/i,
   );
   if (!timeMatch) return null;
+  if (Number(timeMatch[1]) < 1 || Number(timeMatch[1]) > 12) return null;
   let hour = Number(timeMatch[1]) % 12;
   if (timeMatch[3].toUpperCase() === "PM") hour += 12;
   const minute = Number(timeMatch[2] ?? 0);
@@ -189,14 +225,10 @@ async function listPendingReminders() {
     .orderBy(assistantRemindersTable.dueAt);
 }
 
-export async function runReminderTool(message: string): Promise<ReminderToolResult> {
+export async function runReminderTool(message: string, now = new Date()): Promise<ReminderToolResult> {
   const action = reminderAction(message);
   if (action === "create") {
-    const text = extractReminderText(message);
-    const dueAt = parseReminderDateTime(message, new Date());
-    if (!text || !dueAt || dueAt <= new Date()) {
-      throw new Error("Reminder requests need a future date, time, and reminder text");
-    }
+    const { text, dueAt } = parseReminderCreation(message, now);
     const [created] = await db
       .insert(assistantRemindersTable)
       .values({ text, dueAt, status: "pending" })

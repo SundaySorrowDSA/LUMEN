@@ -54,6 +54,8 @@ import {
   buildReminderContext,
   requiresReminderTool,
   runReminderTool,
+  ReminderValidationError,
+  parseReminderCreation,
 } from "../tools/reminders.js";
 import {
   assessOpenAIConsultation,
@@ -481,6 +483,7 @@ router.delete("/assistant/conversations/:id", async (req, res) => {
 });
 
 router.post("/assistant/conversations/:id/messages", async (req, res) => {
+  const reminderRequestTime = new Date();
   if (process.env.NODE_ENV === "test" || req.get("X-Lumen-Test-Mode") === "isolated") {
     res.status(409).json({ error: "Automated verification must use non-persistent message fixtures." });
     return;
@@ -504,6 +507,14 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     return;
   }
   const body = parsed.data;
+  if (requiresReminderTool(body.content) && /\bremind\s+me\b/i.test(body.content)) {
+    try { parseReminderCreation(body.content, reminderRequestTime); }
+    catch (error) {
+      if (!(error instanceof ReminderValidationError)) throw error;
+      res.status(422).json({ error: error.message, deliveryStatus: "rejected", code: "reminder_clarification_required" });
+      return;
+    }
+  }
   if (!body.content.trim() && !body.photoDataUrl && !body.toolCall) {
     res.status(400).json({ error: "Enter a message or attach a photo." });
     return;
@@ -623,7 +634,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   const activeProviderId = await getActiveProviderId();
   const reminderRequested = requiresReminderTool(body.content);
   const reminder = reminderRequested
-    ? await runReminderTool(body.content)
+    ? await runReminderTool(body.content, reminderRequestTime)
     : null;
   const workScheduleRequested =
     !reminderRequested && requiresWorkScheduleInformation(body.content);
