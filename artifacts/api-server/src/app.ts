@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import reminderWorkerRouter from "./routes/reminder-worker.js";
 import {
   ASSISTANT_TRACE_HEADER,
   ASSISTANT_TRACE_VERSION,
@@ -78,6 +79,8 @@ app.use((req, res, next) => {
 });
 
 app.use(cors());
+// This bodyless endpoint authenticates before JSON/body parsing or worker work.
+app.use("/api", reminderWorkerRouter);
 // Allow one resized photo only on the message endpoint; all other JSON routes keep the default limit.
 const messageJson = express.json({ limit: "4mb" });
 app.use((req, res, next) => {

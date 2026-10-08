@@ -33,6 +33,7 @@ import type {
   AssistantProviderSelection,
   AssistantProviderSelectionInput,
   HealthStatus,
+  ReminderWorkerRun,
   TestImageFailure,
   TestImageInput
 } from './api.schemas';
@@ -63,6 +64,81 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getRunDueRemindersUrl = () => {
+
+
+
+
+  return `/api/internal/reminders/run-due`
+}
+
+/**
+ * No body or query parameters. Authorization uses the dedicated LUMEN_REMINDER_WORKER_TOKEN, not a browser session. The caller also sends the same bearer value in X-Lumen-Worker-Authorization so application authentication remains available if the private-project gateway consumes Authorization. This operation can persist messages and send real pushes.
+ * @summary Run reminder delivery after dedicated scheduler bearer authentication
+ */
+export const runDueReminders = async ( options?: Parameters<typeof customFetch>[1]): Promise<ReminderWorkerRun> => {
+
+  return customFetch<ReminderWorkerRun>(getRunDueRemindersUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRunDueRemindersMutationKey = () => ['runDueReminders'] as const;
+
+export const getRunDueRemindersMutationOptions = <TError = ErrorType<ReminderWorkerRun>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runDueReminders>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runDueReminders>>, TError,void, TContext> => {
+
+const mutationKey = getRunDueRemindersMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runDueReminders>>, void> = () => {
+
+
+          return  runDueReminders(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunDueRemindersMutationResult = NonNullable<Awaited<ReturnType<typeof runDueReminders>>>
+
+    export type RunDueRemindersMutationError = ErrorType<ReminderWorkerRun>
+
+
+    /**
+ * @summary Run reminder delivery after dedicated scheduler bearer authentication
+ */
+export const useRunDueReminders = <TError = ErrorType<ReminderWorkerRun>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runDueReminders>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runDueReminders>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRunDueRemindersMutationOptions(options));
+    }
 
 export const getGetTestImagePageUrl = () => {
 

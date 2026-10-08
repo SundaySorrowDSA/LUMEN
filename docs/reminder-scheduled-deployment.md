@@ -1,36 +1,93 @@
 # Reminder delivery: production setup and schema review
 
-The Autoscale web deployment is unchanged. The due worker does not run as a
-web-server timer. Production automation requires a **separately configured
-Replit Scheduled Deployment**; preparing this code does not activate that job.
+The Autoscale web deployment is unchanged. The due worker runs inside LUMEN
+through an authenticated, bodyless endpoint:
+
+`POST /api/internal/reminders/run-due`
+
+Production automation requires a **separate Scheduled Deployment project**
+running the minimal HTTP caller. Preparing this code does not activate a job.
+Do not change LUMEN's project-wide deployment type to Scheduled.
 
 ## Scheduled Deployment settings
 
-- Cron: `* * * * *` (every minute; timezone does not affect this expression).
-- Run: `pnpm --filter @workspace/api-server run push:due`
-- Build/preparation: `pnpm install --frozen-lockfile --prod=false`
-  (the command runs TypeScript through the existing `tsx` dependency).
-- Set `NODE_ENV=production`.
-- Use the **same production PostgreSQL database** as the Autoscale app. Do not
-  accidentally use the workspace database or a separate job's empty database.
-- Provide the production `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and
-  `VAPID_SUBJECT` through Replit's secrets/settings, without copying values into
-  code, command arguments, or logs.
-- Allow enough job timeout for the subscription count (each network send has an
-  eight-second timeout). Overlapping runs are safe: locked reminders are skipped.
-- Publish/activate the separate job only after reviewing and applying the
-  reminder schema via the normal web-app Publish flow.
-- Do not replace the web app's deployment type or production start command.
-  If the UI offers replacing the existing Autoscale deployment rather than
-  adding a separate scheduled job, stop and obtain a separate deployment target.
-- No public HTTP endpoint, private-app bypass token, or cron HTTP request is
-  needed: this job connects directly to the production database.
+1. In **LUMEN → Publishing → Adjust settings → Security → External access
+   tokens → Create access token**, create a dedicated token labeled
+   `Reminder scheduler`, with **Production** environment and a suitable expiry.
+   Select **Copy token only**. Never use the query-parameter copy action.
+2. Store it as the secret `LUMEN_REMINDER_WORKER_TOKEN` in LUMEN. Republish
+   LUMEN normally, retaining Autoscale and private access. Current Replit docs
+   confirm Production External Access Tokens survive ordinary republishes.
+3. Prepare a **separate, standalone Node 22+ project**, not a new artifact in
+   LUMEN. Copy `scripts/src/call-reminder-worker.mjs` into that project as
+   `call-reminder-worker.mjs`. It needs no npm dependencies or web server.
+4. In that caller project set:
+   - environment variable `LUMEN_PRODUCTION_URL`:
+     `https://personal-ai-assistant-SundaySorrow.replit.app`
+   - secret `LUMEN_REMINDER_WORKER_TOKEN`: the same dedicated token.
+   The caller needs **no database connection or VAPID keys**.
+5. Open **Tools → Replit Cloud → Publishing** (or the editor's **Publish**
+   control) in the **caller project**. Under **Adjust settings → Deployment
+   type**, choose **Scheduled**.
+6. Set:
+   - Cron: `* * * * *` (every minute; timezone does not affect this expression).
+   - Run: `node call-reminder-worker.mjs`
+   - Build: none; only the Node runtime and this file are required.
+   - Job timeout: at least 60 seconds. Caller HTTP timeout is 55 seconds.
+7. Publish/activate **that separate Scheduled project**. Never choose Scheduled
+   in LUMEN's own deployment dropdown.
+
+The caller sends the same dedicated bearer token in `Authorization` for Replit's
+private-project gateway and `X-Lumen-Worker-Authorization` for the application
+guard. The second header remains usable if the gateway consumes Authorization.
+No token is sent in the URL or logged. Other valid Replit access tokens do not
+authorize the worker unless they match LUMEN's dedicated secret.
+
+The external token grants access through the private project's protection, not
+only to this endpoint. Treat it as a sensitive credential. If it expires or is
+revoked, replace it in both projects and republish affected settings. Do not
+make LUMEN public to avoid this requirement.
+
+Database/VAPID credentials remain exclusively with LUMEN. The existing delivery
+function uses LUMEN's production runtime database; the caller has no database
+code and cannot accidentally operate on its own workspace database.
+
+`pnpm --filter @workspace/api-server run push:due` remains available as a direct
+operator command, but is **not** the separate caller's scheduled command.
+Do not run it manually against production as a test.
+
+## Activation verification — separate from code readiness
+
+Do not report "schedule active" based on a code change, republish, manual request,
+or the request's scheduler-source header. That header is a caller assertion.
+
+After an actual scheduled run:
+
+1. In the **caller project's Publishing run history/logs**, find an automatic
+   scheduled run with `scheduled_call_completed` and its `runId`.
+2. In **LUMEN's production Publishing logs**, find the matching `runId` on
+   `worker_request_authorized` and `worker_request_completed`, including
+   delivery counts and any Dark Mode suppression.
+3. Confirm later minute runs repeat. A zero-reminder successful invocation
+   confirms execution, not notification delivery.
+
+`scheduled_call_failed`, HTTP 401/403/503, redirects, invalid responses, and
+timeouts are failures, not activation proof. Worker partial failures return
+HTTP 502 and make the caller exit nonzero. No automatic immediate HTTP retries
+are made; the next scheduled minute retries through existing locks/receipts.
+
+LUMEN rejects missing/incorrect bearer credentials, missing secret configuration,
+all query parameters, and `X-Lumen-Test-Mode: isolated` before invoking delivery.
 
 Every-minute scheduling adds up to approximately one minute of delivery delay,
 plus startup/network time. Relative deadlines remain exact; notification arrival
 is not guaranteed at the exact second.
 
 ## Required database changes only
+
+The authenticated endpoint and caller add **no new database changes**. The
+following describes the existing reminder-delivery migration already prepared
+for LUMEN:
 
 Add to `assistant_reminders`:
 

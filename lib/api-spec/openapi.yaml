@@ -13,6 +13,68 @@ tags:
   - name: assistant
     description: Personal assistant workspace operations
 paths:
+  /internal/reminders/run-due:
+    post:
+      operationId: runDueReminders
+      tags: [assistant]
+      summary: Run reminder delivery after dedicated scheduler bearer authentication
+      description: >
+        No body or query parameters. Authorization uses the dedicated
+        LUMEN_REMINDER_WORKER_TOKEN, not a browser session. The caller also sends
+        the same bearer value in X-Lumen-Worker-Authorization so application
+        authentication remains available if the private-project gateway consumes
+        Authorization. This operation can persist messages and send real pushes.
+      security:
+        - reminderWorkerBearer: []
+        - reminderWorkerHeader: []
+      parameters:
+        - name: X-Lumen-Scheduler-Run-Id
+          in: header
+          schema:
+            type: string
+            format: uuid
+        - name: X-Lumen-Scheduler-Source
+          in: header
+          schema:
+            type: string
+            enum: [replit-scheduled-deployment]
+      responses:
+        "200":
+          description: Authenticated delivery invocation completed without reported failures
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReminderWorkerRun"
+        "400":
+          description: Query parameters are not accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReminderWorkerRun"
+        "401":
+          description: Missing or incorrect dedicated bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReminderWorkerRun"
+        "403":
+          description: Isolated diagnostic requests cannot execute the real worker
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReminderWorkerRun"
+        "502":
+          description: Worker reported partial failures or threw an exception
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReminderWorkerRun"
+        "503":
+          description: Dedicated worker secret is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReminderWorkerRun"
   /test-image:
     get:
       operationId: getTestImagePage
@@ -279,7 +341,54 @@ paths:
                 items:
                   $ref: "#/components/schemas/AssistantConnection"
 components:
+  securitySchemes:
+    reminderWorkerBearer:
+      type: http
+      scheme: bearer
+      description: Dedicated scheduler secret; use a Production External Access Token when LUMEN is private.
+    reminderWorkerHeader:
+      type: apiKey
+      in: header
+      name: X-Lumen-Worker-Authorization
+      description: Same dedicated secret, formatted as Bearer TOKEN, for private gateway forwarding.
   schemas:
+    ReminderWorkerRun:
+      type: object
+      required: [ok, runId]
+      properties:
+        ok:
+          type: boolean
+        runId:
+          type: string
+          format: uuid
+        code:
+          type: string
+        result:
+          $ref: "#/components/schemas/ReminderWorkerResult"
+    ReminderWorkerResult:
+      type: object
+      required: [reminders, subscriptions, delivered, chatDelivered, failed, expired, suppressed]
+      properties:
+        reminders:
+          type: integer
+          minimum: 0
+        subscriptions:
+          type: integer
+          minimum: 0
+        delivered:
+          type: integer
+          minimum: 0
+        chatDelivered:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+        expired:
+          type: integer
+          minimum: 0
+        suppressed:
+          type: boolean
     TestImageFailure:
       type: object
       required: [error]

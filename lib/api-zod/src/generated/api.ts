@@ -9,6 +9,45 @@ import * as zod from 'zod';
 
 
 /**
+ * No body or query parameters. Authorization uses the dedicated LUMEN_REMINDER_WORKER_TOKEN, not a browser session. The caller also sends the same bearer value in X-Lumen-Worker-Authorization so application authentication remains available if the private-project gateway consumes Authorization. This operation can persist messages and send real pushes.
+ * @summary Run reminder delivery after dedicated scheduler bearer authentication
+ */
+export const RunDueRemindersHeader = zod.object({
+  "X-Lumen-Scheduler-Run-Id": zod.string().uuid().optional(),
+  "X-Lumen-Scheduler-Source": zod.enum(['replit-scheduled-deployment']).optional()
+})
+
+export const runDueRemindersResponseResultRemindersMin = 0;
+
+export const runDueRemindersResponseResultSubscriptionsMin = 0;
+
+export const runDueRemindersResponseResultDeliveredMin = 0;
+
+export const runDueRemindersResponseResultChatDeliveredMin = 0;
+
+export const runDueRemindersResponseResultFailedMin = 0;
+
+export const runDueRemindersResponseResultExpiredMin = 0;
+
+
+
+export const RunDueRemindersResponse = zod.object({
+  "ok": zod.boolean(),
+  "runId": zod.string().uuid(),
+  "code": zod.string().optional(),
+  "result": zod.object({
+  "reminders": zod.number().int().min(runDueRemindersResponseResultRemindersMin),
+  "subscriptions": zod.number().int().min(runDueRemindersResponseResultSubscriptionsMin),
+  "delivered": zod.number().int().min(runDueRemindersResponseResultDeliveredMin),
+  "chatDelivered": zod.number().int().min(runDueRemindersResponseResultChatDeliveredMin),
+  "failed": zod.number().int().min(runDueRemindersResponseResultFailedMin),
+  "expired": zod.number().int().min(runDueRemindersResponseResultExpiredMin),
+  "suppressed": zod.boolean()
+}).optional()
+})
+
+
+/**
  * @summary Open the isolated image generation test page
  */
 export const GetTestImagePageResponse = zod.unknown()

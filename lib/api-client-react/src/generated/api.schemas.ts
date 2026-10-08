@@ -5,6 +5,29 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface ReminderWorkerResult {
+  /** @minimum 0 */
+  reminders: number;
+  /** @minimum 0 */
+  subscriptions: number;
+  /** @minimum 0 */
+  delivered: number;
+  /** @minimum 0 */
+  chatDelivered: number;
+  /** @minimum 0 */
+  failed: number;
+  /** @minimum 0 */
+  expired: number;
+  suppressed: boolean;
+}
+
+export interface ReminderWorkerRun {
+  ok: boolean;
+  runId: string;
+  code?: string;
+  result?: ReminderWorkerResult;
+}
+
 export interface OpenAiImageError {
   status: number;
   message: string;

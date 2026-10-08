@@ -24,5 +24,7 @@ export * from './healthStatus';
 export * from './imageCapabilityInput';
 export * from './imageCapabilityInputName';
 export * from './openAiImageError';
+export * from './reminderWorkerResult';
+export * from './reminderWorkerRun';
 export * from './testImageFailure';
 export * from './testImageInput';
