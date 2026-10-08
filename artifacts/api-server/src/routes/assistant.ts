@@ -647,7 +647,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   let reminder: Awaited<ReturnType<typeof runReminderTool>> | null = null;
   if (reminderRequested) {
     try {
-      reminder = await runReminderTool(body.content, reminderRequestTime);
+      reminder = await runReminderTool(body.content, reminderRequestTime, conversation.id);
       // Verify the result before any provider consultation can take place.
       buildVerifiedReminderReply(reminder);
       traceLog.info({

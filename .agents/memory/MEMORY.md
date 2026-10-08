@@ -11,3 +11,4 @@
 - [Ren canonical character](ren-character.md) — user-defined identity stays consistent across changing wardrobe and scenes; non-Ren images and the sandbox stay separate.
 - [Home Screen artwork](home-screen-artwork.md) — preserve the full supplied image; adaptive maskable crops conflict with the user's requirement.
 - [Truthful action policy](truthful-action-policy.md) — gold means concrete successful tool evidence; the user prefers false negatives, with uncertain actions gray.
+- [Schema drift safety](schema-drift-safety.md) — an unrelated existing table is absent from Drizzle source; inspect source/database drift before broad schema pushes.

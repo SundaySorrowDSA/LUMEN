@@ -210,3 +210,15 @@ test("an image-generation task inside a reminder remains a reminder, with separa
   assert.equal(result.reminders[0].text, "send a selfie");
   assert.equal(result.reminders[0].dueAt, "2026-10-07T17:01:15.000Z");
 });
+
+test("new reminder records retain their originating conversation, not the active thread", async t => {
+  let savedConversation: number | null = null;
+  t.mock.method(db, "insert", () => ({
+    values: (value: { conversationId: number; text: string; dueAt: Date }) => {
+      savedConversation = value.conversationId;
+      return { returning: async () => [{ id: 42, ...value }] };
+    },
+  } as unknown as ReturnType<typeof db.insert>));
+  await runReminderTool("Ren, remind me in 75 seconds to check the oven", now, 7);
+  assert.equal(savedConversation, 7);
+});

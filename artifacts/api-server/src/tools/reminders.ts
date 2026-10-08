@@ -228,13 +228,13 @@ async function listPendingReminders() {
     .orderBy(assistantRemindersTable.dueAt);
 }
 
-export async function runReminderTool(message: string, now = new Date()): Promise<ReminderToolResult> {
+export async function runReminderTool(message: string, now = new Date(), conversationId?: number): Promise<ReminderToolResult> {
   const action = reminderAction(message);
   if (action === "create") {
     const { text, dueAt } = parseReminderCreation(message, now);
     const [created] = await db
       .insert(assistantRemindersTable)
-      .values({ text, dueAt, status: "pending" })
+      .values({ text, dueAt, status: "pending", conversationId: conversationId ?? null })
       .returning();
     return {
       tool: "persistent-reminders",

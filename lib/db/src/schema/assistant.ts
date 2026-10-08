@@ -43,12 +43,18 @@ export const assistantPrivacySettingsTable = pgTable("assistant_privacy_settings
 
 export const assistantRemindersTable = pgTable("assistant_reminders", {
   id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").references(() => assistantConversationsTable.id),
   text: text("text").notNull(),
   dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   notificationSentAt: timestamp("notification_sent_at", { withTimezone: true }),
+  chatStatus: text("chat_status").notNull().default("pending"),
+  chatDeliveredAt: timestamp("chat_delivered_at", { withTimezone: true }),
+  pushStatus: text("push_status").notNull().default("pending"),
+  pushAttemptedAt: timestamp("push_attempted_at", { withTimezone: true }),
+  pushLastError: text("push_last_error"),
 });
 
 export const assistantPushSubscriptionsTable = pgTable(

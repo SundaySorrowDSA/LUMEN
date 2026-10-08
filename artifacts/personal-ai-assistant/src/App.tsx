@@ -576,7 +576,13 @@ function Workspace() {
     try { localStorage.setItem(ACTIVE_CONVERSATION_KEY, String(selected)); } catch { /* Selection still works without browser storage. */ }
   }, [selected]);
   const detailQuery = useGetAssistantConversation(selected ?? 0, {
-    query: { enabled: !!selected, queryKey: getGetAssistantConversationQueryKey(selected ?? 0) },
+    query: {
+      enabled: !!selected,
+      queryKey: getGetAssistantConversationQueryKey(selected ?? 0),
+      // Background reminder messages must appear without reopening the thread.
+      refetchInterval: 15_000,
+      refetchOnWindowFocus: true,
+    },
     request: { headers: assistantTraceHeadersRef.current },
   });
   const importedPhotoLookupKey = detailQuery.data?.messages
