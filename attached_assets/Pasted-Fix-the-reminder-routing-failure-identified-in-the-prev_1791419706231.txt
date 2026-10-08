@@ -1,0 +1,99 @@
+Fix the reminder-routing failure identified in the previous trace, and add protection against false action acknowledgements.
+
+The verified failure was:
+
+"Ren, remind me in 75 seconds to check the oven."
+
+The reminder detector returned reminderRequested:false because the leading direct-address prefix "Ren," prevented recognition. Kindroid then generated text claiming the timer was set even though no reminder tool executed.
+
+Make the smallest safe change necessary.
+
+1. REMINDER INTENT NORMALIZATION
+
+Before reminder intent detection, normalize an optional conversational direct-address prefix.
+
+At minimum support case-insensitively:
+
+Ren, remind me ...
+Ren remind me ...
+Hey Ren, remind me ...
+Hey Ren remind me ...
+
+The normalization must affect reminder detection only. Do not broadly strip arbitrary words or weaken unrelated routing.
+
+After removing the supported address prefix, the existing reminder parser and validation behavior should remain unchanged.
+
+Examples that must route as reminders:
+
+"Ren, remind me in 75 seconds to check the oven."
+"Ren remind me tomorrow at 8 AM to call Sam."
+"Hey Ren, remind me in 10 minutes to check the laundry."
+"hey ren remind me Friday at 5 PM to leave."
+
+Existing forms must continue working:
+
+"Remind me in 75 seconds to check the oven."
+"Please remind me tomorrow at 8 AM to call Sam."
+
+2. FALSE ACTION ACKNOWLEDGEMENT GUARD
+
+A conversational provider must not claim that a reminder, timer, scheduled action, notification, or similar Lumen-managed action was successfully created unless the corresponding tool actually executed successfully.
+
+For reminder requests specifically:
+
+- If reminder intent is detected, use the reminder tool path.
+- Do not allow Kindroid-only conversational output to substitute for reminder creation.
+- Successful acknowledgement should only occur after verified reminder creation.
+- If reminder creation fails, return an honest failure response rather than language such as:
+  "Timer set"
+  "Reminder set"
+  "I'll remind you"
+  "75 seconds on the clock"
+
+Do not attempt to solve this by keyword-rewriting arbitrary Kindroid responses after generation if a cleaner routing/tool-grounding solution already exists.
+
+3. TESTS
+
+Add regression tests covering:
+
+- "Ren, remind me in 75 seconds to check the oven."
+- "Ren remind me in 75 seconds to check the oven."
+- "Hey Ren, remind me in 75 seconds to check the oven."
+- mixed capitalization
+- existing reminder syntax without Ren
+- a normal non-reminder sentence containing Ren that must remain ordinary chat
+
+Verify that the 75-second example reaches the reminder tool and produces a scheduled timestamp exactly 75 seconds after the request reference time, subject only to normal timestamp precision.
+
+Also add or update a test ensuring that a Kindroid-only response cannot falsely represent a reminder as successfully created when no reminder tool execution is present.
+
+4. ENVIRONMENT ISSUE
+
+Do not change deployment/environment configuration yet.
+
+Separately inspect why the supposedly live test appeared in the development/workspace API database and logs instead of production.
+
+Determine which API base URL the currently opened Lumen client is actually using and whether the published frontend is pointing at:
+- production API,
+- workspace/development API,
+- or another endpoint.
+
+Report the exact configured/requested endpoint with evidence.
+
+Do not modify that configuration until you report what you found.
+
+5. VERIFICATION
+
+Run the relevant reminder, routing, and policy tests.
+
+Then report:
+
+- files changed
+- exact normalization behavior added
+- tests added
+- test results
+- whether false acknowledgement is now prevented
+- which API endpoint the current client appears to use
+- whether another publish is required
+
+Do not publish yet.
