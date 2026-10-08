@@ -12,3 +12,4 @@
 - [Home Screen artwork](home-screen-artwork.md) — preserve the full supplied image; adaptive maskable crops conflict with the user's requirement.
 - [Truthful action policy](truthful-action-policy.md) — gold means concrete successful tool evidence; the user prefers false negatives, with uncertain actions gray.
 - [Schema drift safety](schema-drift-safety.md) — an unrelated existing table is absent from Drizzle source; inspect source/database drift before broad schema pushes.
+- [Scheduled deployment boundary](scheduled-deployment-boundary.md) — a deployment-type change is not a second scheduled job; preserve Autoscale and verify the worker's database binding.
