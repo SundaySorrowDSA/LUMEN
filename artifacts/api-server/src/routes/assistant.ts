@@ -68,6 +68,13 @@ import { resolveConversationIntent } from "../tools/conversation-intent.js";
 import { dispatchConversationImage } from "../tools/conversation-image-delivery.js";
 import { appendSuccessfulConsultation } from "../tools/provider-tool-content.js";
 import { collectSuccessfulActionEvidence, verifyActionSpans } from "../tools/action-verification.js";
+import {
+  assertManagedActionAcknowledgement,
+  buildVerifiedReminderReply,
+  completeGroundedReply,
+  managedActionGroundingContext,
+  UnverifiedManagedActionError,
+} from "../tools/reminder-action-policy.js";
 import { getOrSelectCurrentRenWardrobe } from "../tools/ren-wardrobe-state.js";
 import { isRenClothingChoice } from "../tools/ren-wardrobe-selector.js";
 import { deleteGeneratedImage, readGeneratedImage } from "../lib/generated-image-storage.js";
@@ -507,7 +514,8 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     return;
   }
   const body = parsed.data;
-  if (requiresReminderTool(body.content) && /\bremind\s+me\b/i.test(body.content)) {
+  const reminderRequested = requiresReminderTool(body.content);
+  if (reminderRequested && /\bremind\s+me\b/i.test(body.content)) {
     try { parseReminderCreation(body.content, reminderRequestTime); }
     catch (error) {
       if (!(error instanceof ReminderValidationError)) throw error;
@@ -542,7 +550,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   const intent = resolveConversationIntent(body.content, {
     assistantCharacter: "Ren", toolPrompt: body.toolCall?.prompt, messages: conversation.messages,
   });
-  const imageRequest = intent.imageRequest;
+  const imageRequest = reminderRequested ? null : intent.imageRequest;
   const imagePrompt = imageRequest?.prompt ?? null;
   if (imagePrompt !== null) {
     if (body.photoDataUrl) {
@@ -573,7 +581,11 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
           }),
         },
         onGenerated: image => { storedPath = image.objectPath; },
-        complete: request => providerRouter.complete(request),
+        complete: async request => {
+          const reply = await providerRouter.complete(request);
+          assertManagedActionAcknowledgement(reply.content, null);
+          return reply;
+        },
       });
       const result = delivery.result;
       traceLog.info({ stage: "image_ren_response", tool: "generate_image", providerId: result.providerId, model: result.model }, "Ren acknowledged the image result");
@@ -632,10 +644,25 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   }
 
   const activeProviderId = await getActiveProviderId();
-  const reminderRequested = requiresReminderTool(body.content);
-  const reminder = reminderRequested
-    ? await runReminderTool(body.content, reminderRequestTime)
-    : null;
+  let reminder: Awaited<ReturnType<typeof runReminderTool>> | null = null;
+  if (reminderRequested) {
+    try {
+      reminder = await runReminderTool(body.content, reminderRequestTime);
+      // Verify the result before any provider consultation can take place.
+      buildVerifiedReminderReply(reminder);
+      traceLog.info({
+        stage: "reminder_tool_completed", action: reminder.action, status: reminder.status,
+        reminders: reminder.reminders.map(({ id, dueAt }) => ({ id, dueAt })),
+      }, "Reminder tool result verified");
+    } catch (error) {
+      traceLog.error({ stage: "reminder_tool_failed", errorName: error instanceof Error ? error.name : "UnknownError" }, "Reminder creation could not be confirmed");
+      res.status(error instanceof ReminderValidationError ? 422 : 502).json({
+        error: error instanceof ReminderValidationError ? error.message : "I couldn't confirm that the reminder operation completed. No timer or reminder confirmation will be given.",
+        code: "reminder_operation_unconfirmed",
+      });
+      return;
+    }
+  }
   const workScheduleRequested =
     !reminderRequested && requiresWorkScheduleInformation(body.content);
   const workSchedule = workScheduleRequested
@@ -653,7 +680,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
     intent.webSearchRequested;
   const localToolHandled =
     reminderRequested || workScheduleRequested || calculation !== null;
-  const explicitConsultationQuestion = extractExplicitOpenAIQuestion(body.content);
+  const explicitConsultationQuestion = reminderRequested ? null : extractExplicitOpenAIQuestion(body.content);
   const explicitConsultationRequested = explicitConsultationQuestion !== null;
   if (explicitConsultationRequested &&
       !providerRouter.list().some((provider) => provider.id === "kindroid" && provider.configured)) {
@@ -812,7 +839,9 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   if (photoContext) {
     providerContent = `${providerContent.trim() || "[Photo attached]"}\n\n${photoContext}`;
   }
-  const finalProviderId = photoContext || consultationResult.consultation.requested ? "kindroid" : (body.providerId ?? activeProviderId);
+  if (!reminderRequested) providerContent = managedActionGroundingContext(providerContent);
+  const finalProviderId = reminderRequested ? "lumen-reminder-tool"
+    : photoContext || consultationResult.consultation.requested ? "kindroid" : (body.providerId ?? activeProviderId);
   const searchContextKind = webSearch
     ? "search_results"
     : webSearchOutcome.error instanceof InsufficientNewsEvidenceError
@@ -840,7 +869,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
   const providerStartedAt = Date.now();
   let result;
   try {
-    result = await providerRouter.complete({
+    result = await completeGroundedReply(reminderRequested, reminder, () => providerRouter.complete({
       requestedProvider: finalProviderId as ProviderId,
       messages: conversation.messages
         .filter((message) => message.role === "user" || message.role === "assistant")
@@ -849,7 +878,7 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
           content: message.content,
         }))
         .concat({ role: "user", content: providerContent }),
-    });
+    }));
   } catch (error) {
     traceLog.error(
       {
@@ -860,6 +889,10 @@ router.post("/assistant/conversations/:id/messages", async (req, res) => {
       },
       "Assistant trace final provider failed",
     );
+    if (error instanceof UnverifiedManagedActionError) {
+      res.status(502).json({ error: error.message, code: "unverified_managed_action" });
+      return;
+    }
     throw error;
   }
   traceLog.info(

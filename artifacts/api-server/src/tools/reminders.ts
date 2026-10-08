@@ -27,12 +27,15 @@ const WEEKDAYS = [
 ];
 
 export function requiresReminderTool(message: string): boolean {
-  if (/\bremind\s+me\b/i.test(message)) {
+  // Only reminder intent sees this normalization. The original request stays
+  // intact for parsing, history, and every other routing decision.
+  const intentMessage = message.trim().replace(/^(?:hey\s+)?ren(?:\s*,\s*|\s+)/i, "");
+  if (/\bremind\s+me\b/i.test(intentMessage)) {
     // Conversational recollections and statements are not scheduling commands.
-    return /^(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?remind\s+me\b/i.test(message.trim()) &&
-      !/\bremind\s+me\s+(?:how|what|why|who|where|when|of|about|that)\b/i.test(message);
+    return /^(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?remind\s+me\b/i.test(intentMessage) &&
+      !/\bremind\s+me\s+(?:how|what|why|who|where|when|of|about|that)\b/i.test(intentMessage);
   }
-  return REMINDER_INTENT.test(message);
+  return REMINDER_INTENT.test(intentMessage);
 }
 
 export class ReminderValidationError extends Error {}

@@ -153,3 +153,60 @@ test("existing absolute reminder syntaxes retain their exact timestamps", () => 
     assert.equal(parsed.dueAt.toISOString(), expected);
   }
 });
+
+for (const address of ["Ren,", "Ren", "Hey Ren,", "Hey Ren", "hEy rEn,", "REN,"]) {
+  test(`direct address ${address} reaches the reminder tool with the original 75-second task`, async t => {
+    const input = `${address} remind me in 75 seconds to check the oven.`;
+    assert.equal(requiresReminderTool(input), true);
+    let inserted: { text: string; dueAt: Date } | undefined;
+    t.mock.method(db, "insert", () => ({
+      values: (value: { text: string; dueAt: Date }) => {
+        inserted = value;
+        return { returning: async () => [{ id: 42, ...value }] };
+      },
+    } as unknown as ReturnType<typeof db.insert>));
+    const result = await runReminderTool(input, now);
+    assert.equal(inserted?.text, "check the oven");
+    assert.equal(inserted?.dueAt.getTime(), now.getTime() + 75_000);
+    assert.equal(result.status, "created");
+    assert.equal(result.reminders[0].dueAt, "2026-10-07T17:01:15.000Z");
+  });
+}
+
+test("address normalization preserves other valid reminder timing and polite syntax", () => {
+  for (const [input, due] of [
+    ["Ren remind me tomorrow at 8 AM to call Sam.", "2026-10-08T12:00:00.000Z"],
+    ["Hey Ren, remind me in 10 minutes to check the laundry.", "2026-10-07T17:10:00.000Z"],
+    ["hey ren remind me Friday at 5 PM to leave.", "2026-10-09T21:00:00.000Z"],
+    ["Remind me in 75 seconds to check the oven.", "2026-10-07T17:01:15.000Z"],
+    ["Please remind me tomorrow at 8 AM to call Sam.", "2026-10-08T12:00:00.000Z"],
+  ]) {
+    assert.equal(requiresReminderTool(input), true);
+    assert.equal(parseReminderCreation(input, now).dueAt.toISOString(), due);
+  }
+});
+
+test("normal Ren conversation and arbitrary names are not normalized into scheduling commands", () => {
+  for (const input of [
+    "Ren, I enjoyed our conversation.",
+    "Hey Ren, you remind me of home.",
+    "Ren, remind me how this works.",
+    "My friend Ren said remind me in 75 seconds to check the oven.",
+    "Sam, remind me in 75 seconds to check the oven.",
+    "Renault remind me in 75 seconds to check the oven.",
+    "Ren Ren remind me in 75 seconds to check the oven.",
+  ]) assert.equal(requiresReminderTool(input), false, input);
+});
+
+test("an image-generation task inside a reminder remains a reminder, with separate task text", async t => {
+  const input = "Ren, remind me in 75 seconds to send a selfie.";
+  assert.equal(requiresReminderTool(input), true);
+  t.mock.method(db, "insert", () => ({
+    values: (value: { text: string; dueAt: Date }) => ({
+      returning: async () => [{ id: 42, ...value }],
+    }),
+  } as unknown as ReturnType<typeof db.insert>));
+  const result = await runReminderTool(input, now);
+  assert.equal(result.reminders[0].text, "send a selfie");
+  assert.equal(result.reminders[0].dueAt, "2026-10-07T17:01:15.000Z");
+});
